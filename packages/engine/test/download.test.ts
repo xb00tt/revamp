@@ -101,10 +101,15 @@ test("releaseDigest reads GitHub's SHA-256 for one release asset, and says why w
   assert.equal(await releaseDigest({ ...o, fetch: github(200, release) }), sha);
   assert.equal(urls[0], "https://api.github.com/repos/hydralauncher/hydra/releases/tags/v4.1.7");
   await assert.rejects(releaseDigest({ ...o, fetch: github(404, {}) }), /hydralauncher\/hydra has no release v4\.1\.7 on GitHub/);
-  await assert.rejects(releaseDigest({ ...o, fetch: github(403, {}) }), /HTTP 403/);
+  await assert.rejects(releaseDigest({ ...o, fetch: github(403, {}) }), /HTTP 403 \(GitHub allows 60 API requests an hour/);
   await assert.rejects(releaseDigest({ ...o, fetch: github(200, { assets: [] }) }), /has no asset hydralauncher_4\.1\.7_amd64\.deb/);
   for (const digest of [null, "sha512:abc", `sha256:${"Z".repeat(64)}`]) {
     await assert.rejects(releaseDigest({ ...o, fetch: github(200, { assets: [{ name: o.asset, digest }] }) }), /publishes no SHA-256/);
   }
-  await assert.rejects(releaseDigest({ ...o, repo: "x/../../evil", fetch: github(200, release) }), /invalid GitHub repository/);
+  for (const repo of ["x/../../evil", "../..", "./x", "a/b/c"]) {
+    await assert.rejects(releaseDigest({ ...o, repo, fetch: github(200, release) }), /invalid GitHub repository/);
+  }
+  const text: typeof fetch = async () => new Response("<html>rate limited</html>");
+  await assert.rejects(releaseDigest({ ...o, fetch: text }), /returned an unexpected response/);
+  await assert.rejects(releaseDigest({ ...o, fetch: github(200, { assets: "x" }) }), /returned an unexpected response/);
 });

@@ -59,6 +59,9 @@ export interface SelectionFlags {
   options?: string[];
 }
 
+const JS_TYPE: Record<string, string> = { bool: "boolean", number: "number", string: "string" };
+const EXPECTS: Record<string, string> = { bool: "true or false", number: "a number", string: "a string" };
+
 /**
  * Checks saved choices and flags against the patches a bundle offers for one app, before anything is downloaded.
  * Saved names the bundle no longer has are dropped with a warning; bad flags are errors.
@@ -91,8 +94,9 @@ export function resolveSelection(
       continue;
     }
     for (const [key, value] of Object.entries(values)) {
-      if (Object.hasOwn(p.options, key)) clean.options = withOption(clean.options, n, key, value);
-      else drop(`option "${n}:${key}"`, "the patch no longer has that option");
+      if (!Object.hasOwn(p.options, key)) drop(`option "${n}:${key}"`, "the patch no longer has that option");
+      else if (typeof value !== JS_TYPE[p.options[key].type]) drop(`option "${n}:${key}"`, `the patch now expects ${EXPECTS[p.options[key].type] ?? "another type"}`);
+      else clean.options = withOption(clean.options, n, key, value);
     }
   }
 

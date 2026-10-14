@@ -130,6 +130,13 @@ test("Hydra locales keeps keys a release already has", () => {
   assert.ok(ptBR.endsWith(`"sort_recently_added": "Upstream", "sort_recently_downloaded": "Baixados recentemente" };`));
 });
 
+test("Hydra locales ignores nested objects inside a library namespace", () => {
+  const locales = fixture("locales-excerpt.js").replace(`"{{collectionName}}"?' };`, `"{{collectionName}}"?', "nested": { "x": "X" } };`);
+  const code = job(NONE, hydraFiles({ [LOCALES]: locales })).outputs.get(LOCALES)!.toString();
+  const en = code.split("\n").find((l) => l.startsWith("const library$y = "))!;
+  assert.ok(en.endsWith(`"nested": { "x": "X" }, "sort_recently_downloaded": "Recently downloaded", "sort_recently_added": "Recently added" };`));
+});
+
 test("the sorts are skipped, naming the internal patch, when the locales can't be found", () => {
   const out = job(NONE, hydraFiles({ [LOCALES]: fixture("locales-excerpt.js").replace("  bg\n};", "  bg: \"bg\"\n};") }));
   const locales = out.results.find((r) => r.internal)!;

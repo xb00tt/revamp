@@ -1,4 +1,4 @@
-import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, type Stats } from "node:fs";
 import { join, resolve } from "node:path";
 import { assertAsarPath, readAsar, writeAsar } from "./asar.ts";
 import { loadSelection, resolveSelection, saveSelection } from "./config.ts";
@@ -124,7 +124,10 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
     try {
       log("Extracting…");
       await extractDeb(debPath, staging, installSelector(app));
-      const exe = statSync(join(staging, app.executable), { throwIfNoEntry: false });
+      let exe: Stats | undefined;
+      try {
+        exe = statSync(join(staging, app.executable));
+      } catch {} // missing, or a symlink loop
       if (!exe?.isFile() || (exe.mode & 0o111) === 0) throw new Error(`the .deb has no executable file ${app.installDir}/${app.executable}`);
       const stockDesktop = takeMeta(staging, app);
 

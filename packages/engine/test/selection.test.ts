@@ -73,6 +73,16 @@ test("saved choices the bundle no longer supports are dropped with a warning", (
   ]);
 });
 
+test("saved option values of the wrong type are dropped with a warning", () => {
+  const saved = { ...EMPTY, options: { Sort: { limit: "3", label: "ok" }, Core: { claimLinks: 1 } } };
+  const { selection, warnings } = resolveSelection(app, MINE, saved, {});
+  assert.deepEqual(selection.options, { Sort: { label: "ok" } });
+  assert.deepEqual(warnings, [
+    'Dropped option "Sort:limit" from your saved choices for Hydra: the patch now expects a number.',
+    'Dropped option "Core:claimLinks" from your saved choices for Hydra: the patch now expects true or false.',
+  ]);
+});
+
 test('a patch named "__proto__" stays an ordinary key', () => {
   const evil = [patch("__proto__", null, { polluted: opt("bool") })];
   const { selection } = resolveSelection(app, evil, EMPTY, { options: ["__proto__:polluted=true"] });

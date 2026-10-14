@@ -21,8 +21,10 @@ async function setup(bundleOptions: { extra?: string; minEngine?: string } = {},
   const server = createServer((req, res) => {
     hits++;
     // 1.0.0 is listed in the bundle; 3.0.0 is not, so only GitHub's API knows its SHA-256.
-    if (/^\/example\/demo\/releases\/download\/v([13])\.0\.0\/demo_\1\.0\.0_amd64\.deb$/.test(req.url!)) res.end(deb);
-    else if (req.url === "/repos/example/demo/releases/tags/v3.0.0") {
+    if (/^\/example\/demo\/releases\/download\/v([135])\.0\.0\/demo_\1\.0\.0_amd64\.deb$/.test(req.url!)) res.end(deb);
+    else if (req.url === "/repos/example/demo/releases/tags/v5.0.0") {
+      res.end(JSON.stringify({ assets: [{ name: "demo_5.0.0_amd64.deb", digest: `sha256:${"0".repeat(64)}` }] }));
+    } else if (req.url === "/repos/example/demo/releases/tags/v3.0.0") {
       res.end(JSON.stringify({ assets: [{ name: "demo_3.0.0_amd64.deb", digest: `sha256:${sha256}` }] }));
     } else {
       res.statusCode = 404;
@@ -183,6 +185,18 @@ test("the app's executable must be a safe relative path and a file in the .deb",
   assert.deepEqual(readdirSync(appRoot(s)), []);
 });
 
+test("a symlink loop for the executable is the same clear error", async (t) => {
+  const loop = [
+    tarEntry("./opt/Demo/loop-a", "", { type: "2", linkname: "loop-b" }),
+    tarEntry("./opt/Demo/loop-b", "", { type: "2", linkname: "loop-a" }),
+  ];
+  const s = await setup({ extra: 'app.executable = "loop-a";' }, loop);
+  t.after(s.close);
+  await assert.rejects(patchApp(s.opts), /the \.deb has no executable file opt\/Demo\/loop-a/);
+  assert.equal(existsSync(join(appRoot(s), "1.0.0")), false);
+  assert.deepEqual(readdirSync(appRoot(s)), []);
+});
+
 test("desktop file and icon links are never moved into .revamp-meta", async (t) => {
   // Valid where the .deb puts it (it climbs to the archive root), but 6 levels up from .revamp-meta/icons/512/ is outside.
   const deep = tarEntry("./usr/share/icons/hicolor/512x512/apps/demo.png", "", { type: "2", linkname: "../../../../../../opt/Demo/demo" });
@@ -209,4 +223,15 @@ test("an unlisted version needs --force and is verified against GitHub's publish
   assert.equal(receipt.release.sha256, createHash("sha256").update(readFileSync(join(s.paths.cache, "releases/demo/3.0.0/demo_3.0.0_amd64.deb"))).digest("hex"));
   await assert.rejects(patchApp({ ...s.opts, version: "4.0.0", force: true }), /example\/demo has no release v4\.0\.0 on GitHub/);
   assert.equal((await patchApp(s.opts)).untested, false);
+});
+
+test("a wrong GitHub digest is enforced, and an unsafe --version is refused before any request", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  await assert.rejects(patchApp({ ...s.opts, version: "5.0.0", force: true }), /SHA-256 mismatch/);
+  assert.equal(existsSync(join(appRoot(s), "5.0.0")), false);
+  assert.equal(existsSync(join(s.paths.cache, "releases/demo/5.0.0/demo_5.0.0_amd64.deb")), false);
+  const before = s.hits();
+  await assert.rejects(patchApp({ ...s.opts, version: "../x", force: true }), /unsafe version/);
+  assert.equal(s.hits(), before);
 });
