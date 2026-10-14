@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { memoryStore, runJob, type Selection } from "@revamp/engine";
 import { formatPatchResult } from "../../../packages/cli/src/format.ts";
+import { EXTENSION_FILE, HYDRA_EXTENSION } from "../src/hydra/extension-loader.ts";
 import * as bundle from "../src/index.ts";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/hydra-4.1.6/${name}`, import.meta.url), "utf8");
 const RENDERER = "out/renderer/assets/index-Cpo9haoY.js";
 const LOCALES = "out/renderer/assets/locales-excerpt.js"; // in the real release this is part of RENDERER
+const MORE_LIKE_THIS = "out/renderer/assets/more-like-this-excerpt.js"; // likewise
 const UPDATERS = ["node_modules/electron-updater/out/AppUpdater.js", "node_modules/electron-updater/out/AppImageUpdater.js"];
 const STOCK = {
   Name: "Hydra",
@@ -24,6 +26,8 @@ function hydraFiles(overrides: Record<string, string> = {}) {
     "out/main/index.js": fixture("main-excerpt.js"),
     [RENDERER]: fixture("renderer-excerpt.js"),
     [LOCALES]: fixture("locales-excerpt.js"),
+    [MORE_LIKE_THIS]: fixture("more-like-this-excerpt.js"),
+    "out/renderer/index.html": fixture("index.html"),
     [UPDATERS[0]]: fixture("AppUpdater-excerpt.js"),
     [UPDATERS[1]]: fixture("AppImageUpdater-excerpt.js"),
     ...overrides,
@@ -43,7 +47,13 @@ test("every Hydra patch applies to the Hydra 4.1.6 excerpts", () => {
     ["Use the bundled UI", "applied", false],
     ["Recently added sort", "applied", false],
     ["Recently downloaded sort", "applied", false],
+    ["More like this ranking", "applied", false],
     ["(internal patch #4: Hydra locales)", "applied", true],
+    ["(internal patch #7: Hydra extension loader)", "applied", true],
+    ["(internal patch #8: registry: game page)", "applied", true],
+    ["(internal patch #9: registry: game data)", "applied", true],
+    ["(internal patch #10: registry: library)", "applied", true],
+    ["(internal patch #11: registry: Steam tags)", "applied", true],
   ]);
 });
 
@@ -79,6 +89,7 @@ test("renderer patches are skipped, not silently dead, when the bundled UI can't
   assert.equal(status("Recently downloaded sort").status, "skipped");
   assert.match(status("Recently downloaded sort").message!, /dependency "Use the bundled UI" failed/);
   assert.equal(status("Recently added sort").status, "skipped");
+  assert.equal(status("More like this ranking").status, "skipped");
 });
 
 test("Recently downloaded sort edits the five places and leaves the decoys alone", () => {
@@ -209,7 +220,7 @@ test("a release the patches don't fit gives the spec's report: what applies, and
   assert.equal(
     report,
     [
-      "Hydra 4.1.7 (untested): 3/5 patches apply (dry run, nothing installed)",
+      "Hydra 4.1.7 (untested): 4/6 patches apply (dry run, nothing installed)",
       "  ✓ Disable self-update (required)",
       "  ✓ Side-by-side identity (required)",
       "  ✓ Use the bundled UI",
@@ -217,6 +228,68 @@ test("a release the patches don't fit gives the spec's report: what applies, and
       `      ${miss}`,
       "  ✗ Recently downloaded sort",
       `      ${miss}`,
+      "  ✓ More like this ranking",
     ].join("\n"),
   );
+});
+
+const REGISTRY = (entries: string) => `Object.assign((globalThis.__revamp ??= { registry: {}, mounts: {} }).registry, { ${entries} });`;
+
+test("the extension loader ships the extension and loads it before Hydra's own module script", () => {
+  const out = job();
+  assert.equal(out.outputs.get(EXTENSION_FILE)!.toString(), HYDRA_EXTENSION);
+  const html = out.outputs.get("out/renderer/index.html")!.toString();
+  assert.ok(
+    html.includes(
+      '    <script type="module" crossorigin src="./assets/revamp-hydra.js"></script>\n' +
+        '    <script type="module" crossorigin src="./assets/index-Cpo9haoY.js"></script>',
+    ),
+  );
+});
+
+test("the registry patches name Hydra's internals just before the root render, and More like this mounts the stock section", () => {
+  const code = job().outputs.get(MORE_LIKE_THIS)!.toString();
+  const registry = [
+    REGISTRY(
+      "React: reactExports$1, jsxRuntime: jsxRuntimeExports, useNavigate: useNavigate, useTranslation: useTranslation, " +
+        "useEmblaCarousel: useEmblaCarousel, VerticalCoverCard: VerticalCoverCard, buildGameDetailsPath: buildGameDetailsPath, " +
+        "ChevronLeftIcon: ChevronLeftIcon, ChevronRightIcon: ChevronRightIcon, Skeleton: Skeleton$1",
+    ),
+    REGISTRY("levelDBService: levelDBService, orderBy: orderBy$1, logger: logger"),
+    REGISTRY("useLibrary: useLibrary$1, useAppDispatch: useAppDispatch$1, useAppSelector: useAppSelector$1"),
+    REGISTRY("setTags: catalogueSearchSlice.actions.setTags, getLocalizedSteamMetadata: getLocalizedSteamMetadata"),
+  ];
+  assert.ok(code.includes(`${registry.join("\n")}\nReactDOM$1.createRoot(document.getElementById("root"))`));
+  assert.ok(
+    code.includes(
+      '}\nSimilarGames = globalThis.__revamp?.mount?.("hydra.similarGames", SimilarGames) ?? SimilarGames;\n__name(SimilarGames, "SimilarGames");',
+    ),
+  );
+});
+
+test("a changed stock section skips only More like this, so Hydra keeps its stock section", () => {
+  const changed = fixture("more-like-this-excerpt.js").replace("similar-games__control--previous", "similar-games__control--back");
+  const out = job(NONE, hydraFiles({ [MORE_LIKE_THIS]: changed }));
+  const r = (name: string) => out.results.find((x) => x.name === name)!;
+  assert.equal(r("(internal patch #8: registry: game page)").status, "failed");
+  assert.match(r("(internal patch #8: registry: game page)").message!, /expected 1 match, found 0/);
+  assert.equal(r("More like this ranking").status, "skipped");
+  assert.equal(r("Recently added sort").status, "applied");
+  assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes("__revamp?.mount"), false);
+});
+
+test("with More like this disabled, the renderer, index.html and the extension file are untouched", () => {
+  const out = job({ ...NONE, disable: ["More like this ranking"] });
+  for (const file of [MORE_LIKE_THIS, "out/renderer/index.html", EXTENSION_FILE]) assert.equal(out.outputs.has(file), false, file);
+});
+
+test("a captured name that isn't declared at the top level fails its registry patch instead of breaking Hydra's startup", () => {
+  // Registry lines run while Hydra's module loads: a name out of scope there would throw and blank the whole UI.
+  const changed = fixture("more-like-this-excerpt.js").replace("const logger = log$2.scope(\"renderer\");\n", "");
+  const out = job(NONE, hydraFiles({ [MORE_LIKE_THIS]: changed }));
+  const data = out.results.find((x) => x.name === "(internal patch #9: registry: game data)")!;
+  assert.equal(data.status, "failed");
+  assert.match(data.message!, /resolve\(\): logger .* has no top-level declaration/);
+  assert.equal(out.results.find((x) => x.name === "More like this ranking")!.status, "skipped");
+  assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes("logger: logger"), false);
 });
