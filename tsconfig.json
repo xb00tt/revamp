@@ -12,5 +12,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["packages/*/src", "packages/*/test", "bundles/*/src", "bundles/*/test", "test"]
+  "include": ["packages/*/src", "packages/*/test", "bundles/*/src", "bundles/*/test", "test"],
+  "exclude": ["bundles/official/src/hydra/extension"]
 }
