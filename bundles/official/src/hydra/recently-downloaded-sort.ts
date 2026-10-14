@@ -1,5 +1,6 @@
 import { definePatch, fingerprint } from "@revamp/sdk";
 import { hydra } from "../apps.ts";
+import { useBundledUi } from "./bundled-ui.ts";
 
 export const librarySortSwitch = fingerprint({
   name: "library sort switch",
@@ -43,6 +44,7 @@ export const recentlyDownloadedSort = definePatch({
   name: "Recently downloaded sort",
   description: "Adds 'Recently downloaded' (newest download first) to the library and sidebar sort menus.",
   compatibleWith: [{ app: hydra, versions: ["4.1.6"] }],
+  dependsOn: [useBundledUi], // edits the bundled renderer, which Hydra only loads with this patch
   execute(ctx) {
     const sort = ctx.match(librarySortSwitch);
     sort.find('case "recently_played": { $$$ }').insertAfter(

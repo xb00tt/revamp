@@ -37,6 +37,7 @@ test("all M1 patches apply to the Hydra 4.1.6 excerpts", () => {
   assert.deepEqual(out.results.map((r) => [r.name, r.status]), [
     ["Disable self-update", "applied"],
     ["Side-by-side identity", "applied"],
+    ["Use the bundled UI", "applied"],
     ["Recently downloaded sort", "applied"],
   ]);
 });
@@ -50,13 +51,28 @@ test("Side-by-side identity sets desktopName, menu name and window class, and ke
   const out = job();
   assert.equal(JSON.parse(out.outputs.get("package.json")!.toString()).desktopName, "revamp-hydra.desktop");
   assert.deepEqual(out.desktopEntry, { ...STOCK, Name: "Hydra (Revamped)", StartupWMClass: "revamp-hydra" });
-  assert.equal(out.outputs.has("out/main/index.js"), false);
+  assert.equal(out.outputs.get("out/main/index.js")!.toString().match(/setAsDefaultProtocolClient\(/g)?.length, 2);
 });
 
 test("claimLinks=false stops protocol registration and drops MimeType", () => {
   const out = job({ ...NONE, options: { "Side-by-side identity": { claimLinks: false } } });
   assert.equal(out.outputs.get("out/main/index.js")!.toString().includes("setAsDefaultProtocolClient"), false);
   assert.equal("MimeType" in out.desktopEntry, false);
+});
+
+test("Use the bundled UI loads the release's own UI instead of Hydra's website", () => {
+  const main = job().outputs.get("out/main/index.js")!.toString();
+  assert.equal(main.includes("hydra-eqi.pages.dev"), false);
+  assert.match(main, /\} else \{\s*window\.loadFile\(path\.join\(__dirname, "\.\.\/renderer\/index\.html"\), \{\s*hash\s*\}\);\s*\}/);
+});
+
+test("renderer patches are skipped, not silently dead, when the bundled UI can't be forced", () => {
+  const remoteOnly = fixture("main-excerpt.js").replace(/try \{[\s\S]*?\n      \}\n/, "await window.loadURL(remote);\n");
+  const out = job(NONE, hydraFiles({ "out/main/index.js": remoteOnly }));
+  const status = (name: string) => out.results.find((r) => r.name === name)!;
+  assert.equal(status("Use the bundled UI").status, "failed");
+  assert.equal(status("Recently downloaded sort").status, "skipped");
+  assert.match(status("Recently downloaded sort").message!, /dependency "Use the bundled UI" failed/);
 });
 
 test("Recently downloaded sort edits the five places and leaves the decoys alone", () => {

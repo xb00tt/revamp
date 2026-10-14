@@ -99,6 +99,12 @@ The settled decisions from the kickoff (#1–#11) still apply. These were decide
   - Identifiers sometimes get `$1` suffixes, and names are not unique: there are two `sortLibraryGames` and two `useAppSelector` (the second one is recharts').
   - Fingerprints anchor on behavior strings (case labels, i18n keys, route paths), not names.
 - **Hydra main.** `out/main/index.js`: 4.6 MB, ESM.
+- **Hydra loads its UI from the web.**
+  - Release builds call `loadURL("https://release-v<version>.hydra-eqi.pages.dev")` and load the bundled `out/renderer/index.html` only when that fails.
+  - The site served a different build (`index-U8qvJD-P.js`) from the release's own (`index-Cpo9haoY.js`).
+  - So renderer patches need the "Use the bundled UI" patch.
+  - The owner's fork build had `MAIN_VITE_LAUNCHER_SUBDOMAIN` empty, so it always fell back to the bundled UI.
+  - Found during M1 acceptance.
 - **Heroic.**
   - Renderer chunks are `build/assets/App.js` (1 MB, minified, e.g. `d.jsx(ut,{url:"/discounts",icon:X9,label:e("discounts.sidebar","Deals")})`), `index4.js`, …, plus a hashed entry `index-<hash>.js`.
   - Main is `build/main/main.js` (12.9 MB).
@@ -556,6 +562,7 @@ Flags passed to `patch` are saved into `~/.config/revamp/apps/<app>.json`, so `u
 |---|---|---|---|---|
 | Disable self-update | universal, **required** for hydra and heroic | any electron-updater app | M1 | `updaterActive` fingerprint (scope `all`, count `many`): `$BODY.replace("{ return false; }")` |
 | Side-by-side identity | universal, **required** | any | M1 | `package.json` `desktopName = "revamp-<app>.desktop"`; `desktopEntry.Name = "<App> (Revamped)"`, `StartupWMClass = revamp-<app>`, `Exec`/`Icon` set by install. Option `claimLinks` (bool, default true): when false, every `$X.setAsDefaultProtocolClient($$$)` call becomes `false` and `MimeType` is dropped. |
+| Use the bundled UI | hydra (dependency of every renderer patch) | 4.1.6 | M1 | Replaces the `try { await window.loadURL(<website>) } catch { …; window.loadFile(<bundled index.html>) }` in `loadWindowURL` with the `loadFile` call. |
 | Recently downloaded sort | hydra | 4.1.6 | M1 | Edits the five places the fork touched: a sort switch case (`download?.timestamp`), the sidebar sort menu entry (with the `DownloadIcon` component resolved by fingerprint), `SIDEBAR_SORT_OPTIONS`, the library filter options and the library sort list. M1 labels use `t(key, { defaultValue: "Recently downloaded" })`. |
 | Hydra locales (internal) | hydra | 4.1.6 | M2 | Follows `resources` → locale → `library` namespace object via `resolve()` and adds keys for en, bg and pt-BR (the fork's strings). The sort patches depend on it from M2. |
 | Recently added sort | hydra | 4.1.6 | M2 | Same five places; sorts on `addedToLibraryAt`, and games without it sort last. |

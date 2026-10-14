@@ -31,6 +31,7 @@ test(
       [
         ["Disable self-update", "applied"],
         ["Side-by-side identity", "applied"],
+        ["Use the bundled UI", "applied"],
         ["Recently downloaded sort", "applied"],
       ],
     );
@@ -44,6 +45,10 @@ test(
     assert.ok(existsSync(join(dir, "resources/app.asar.unpacked")));
 
     assert.equal(JSON.parse(extractFile(asar, "package.json").toString()).desktopName, "revamp-hydra.desktop");
+    // Release builds load their UI from Hydra's website unless patched; the renderer edits live in the bundled copy.
+    const main = extractFile(asar, "out/main/index.js").toString();
+    assert.equal(main.includes("hydra-eqi.pages.dev"), false);
+    assert.ok(main.includes('loadFile(path.join(__dirname, "../renderer/index.html")'));
     for (const f of ["node_modules/electron-updater/out/AppUpdater.js", "node_modules/electron-updater/out/AppImageUpdater.js"]) {
       assert.match(extractFile(asar, f).toString(), /isUpdaterActive\(\) \{\s*return false;\s*\}/, f);
     }
