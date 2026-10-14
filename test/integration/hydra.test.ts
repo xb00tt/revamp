@@ -12,7 +12,7 @@ const BUNDLE = fileURLToPath(new URL("../../bundles/official/dist/official.mjs",
 const enabled = process.env.REVAMP_INTEGRATION === "1";
 
 test(
-  "M1: patch the real Hydra 4.1.6 release into a throwaway home",
+  "patch the real Hydra 4.1.6 release into a throwaway home",
   { skip: enabled ? false : "set REVAMP_INTEGRATION=1 (npm run test:integration)", timeout: 15 * 60_000 },
   async (t) => {
     // The real cache is shared, so the 149 MB .deb downloads once; installs go to a temp home (≈700 MB, removed after).
@@ -32,9 +32,11 @@ test(
         ["Disable self-update", "applied"],
         ["Side-by-side identity", "applied"],
         ["Use the bundled UI", "applied"],
+        ["Recently added sort", "applied"],
         ["Recently downloaded sort", "applied"],
       ],
     );
+    assert.deepEqual(r.results.filter((x) => x.internal).map((x) => [x.name, x.status]), [["(internal patch #4: Hydra locales)", "applied"]]);
     if (cached) assert.ok(seconds < 60, `patching took ${seconds.toFixed(1)} s; expected seconds, not minutes`);
 
     const apps = join(paths.data, "apps/hydra");
@@ -58,6 +60,14 @@ test(
     const patched = rendererFiles.map((p) => extractFile(asar, p).toString()).filter((code) => code.includes('case "recently_downloaded"'));
     assert.equal(patched.length, 1);
     assert.equal(patched[0].match(/"recently_downloaded"/g)?.length, 5);
+    assert.equal(patched[0].match(/"recently_added"/g)?.length, 5);
+    for (const strings of [
+      '"sort_recently_downloaded": "Recently downloaded", "sort_recently_added": "Recently added" };',
+      '"sort_recently_downloaded": "Наскоро изтеглени", "sort_recently_added": "Наскоро добавени" };',
+      '"sort_recently_downloaded": "Baixados recentemente", "sort_recently_added": "Adicionados recentemente" };',
+    ]) {
+      assert.equal(patched[0].split(strings).length, 2, strings);
+    }
 
     // Files the patches didn't touch must be byte-identical: their bytes still match the header's original hashes.
     const sample: Array<[string, string]> = [];

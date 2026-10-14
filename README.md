@@ -17,12 +17,18 @@ npm test
 npm run typecheck
 ```
 
-Patch Hydra with the bundle in this repo:
+Patch Hydra or Heroic with the bundle in this repo:
 
 ```bash
 npm run build -w @revamp/bundle-official
+npm run revamp -- patches hydra
 npm run revamp -- patch hydra
 ```
+
+`revamp patches <app>` lists an app's patches: which are required or on by default, their options, and the
+versions they were tested with. `patch` takes `--enable "<patch>"`, `--disable "<patch>"` and
+`--option "<patch>:<key>=<value>"`, and remembers them for the next run. A version the bundle doesn't list
+needs `--version <v> --force`; it is verified only against the SHA-256 GitHub publishes and is labeled untested.
 
 The other commands are `npm run revamp -- list`, `npm run revamp -- rollback hydra` and
 `npm run revamp -- uninstall hydra`.
