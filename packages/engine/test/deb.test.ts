@@ -103,6 +103,13 @@ for (const [label, entries, error] of hostile) {
   });
 }
 
+test("rejects a pax size that isn't a plain number (it would desync the stream)", async () => {
+  const rec = " size=abc\n";
+  const pax = tarEntry("PaxHeader", `${rec.length + 2}${rec}`, { type: "x" });
+  const { out, path } = setup(debFrom(tarArchive([pax, tarEntry("app/x", "data")]), "gz"));
+  await assert.rejects(extractDeb(path, out, everything), /bad pax size/);
+});
+
 test("rejects files that are not ar archives or have no data member", async () => {
   const { out, path } = setup(Buffer.from("not an archive at all, just text\n"));
   await assert.rejects(extractDeb(path, out, everything), /not an ar archive/);

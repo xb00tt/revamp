@@ -159,7 +159,12 @@ class TarExtractor {
     }
     const path = safeArchivePath(this.pax.path ?? this.longName ?? name);
     const link = this.pax.linkpath ?? this.longLink ?? cstring(h, 157, 100);
-    if (this.pax.size !== undefined) size = Number(this.pax.size);
+    if (this.pax.size !== undefined) {
+      if (!/^\d+$/.test(this.pax.size) || !Number.isSafeInteger(Number(this.pax.size))) {
+        throw new DebError(`bad pax size "${this.pax.size}" for ${path}`);
+      }
+      size = Number(this.pax.size);
+    }
     this.longName = this.longLink = undefined;
     this.pax = {};
     const mode = parseOctal(h.subarray(100, 108)) & 0o777; // drops setuid/setgid/sticky
