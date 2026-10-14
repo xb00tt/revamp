@@ -209,7 +209,8 @@ export function uninstall(paths: Paths, appId: string): void {
 }
 
 export function environmentWarnings(appName: string, sysctl = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"): string[] {
-  const out = [`Revamped ${appName} shares settings with the stock app, so only one of them can run at a time.`];
+  // A Flatpak or Snap stock app keeps its settings elsewhere, so this is only true for the official .deb install.
+  const out = [`Revamped ${appName} uses the same settings as a stock ${appName} installed from the official .deb, so only one of them can run at a time.`];
   try {
     if (readFileSync(sysctl, "utf8").trim() === "1") {
       out.push(

@@ -31,7 +31,8 @@ export function formatInstalls(apps: InstalledApp[]): string {
   const lines: string[] = [];
   for (const a of apps) {
     for (const v of a.versions) {
-      const when = v.receipt.installedAt.slice(0, 16).replace("T", " ");
+      // Receipts store UTC; "sv-SE" formats local time as YYYY-MM-DD HH:MM.
+      const when = new Date(v.receipt.installedAt).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" });
       const patches = v.receipt.patches.filter((p) => p.status === "applied" && !p.internal && !p.required).map((p) => p.name);
       const tags = `${v.version === a.current ? " (current)" : ""}${v.receipt.release.untested ? " (untested)" : ""}`;
       lines.push(`${a.appId} ${v.version}${tags}  installed ${when}  ${patches.join(", ")}`.trimEnd());

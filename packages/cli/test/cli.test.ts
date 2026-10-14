@@ -47,7 +47,10 @@ test("formatPatchResult shows each patch, failures under it, and notes", () => {
   assert.match(formatPatchResult({ ...r, version: "4.1.7", untested: true }), /^Hydra 4\.1\.7 \(untested\): 1\/2 patches apply/);
 });
 
-test("formatInstalls lists versions and marks the current and untested ones", () => {
+test("formatInstalls lists versions in local time and marks the current and untested ones", (t) => {
+  const tz = process.env.TZ;
+  process.env.TZ = "Europe/Sofia"; // UTC+3 in October, so 21:30Z is 00:30 the next day
+  t.after(() => (tz === undefined ? delete process.env.TZ : (process.env.TZ = tz)));
   assert.equal(formatInstalls([]), "No Revamped apps installed.");
   const receipt = (version: string) => ({
     app: "hydra",
@@ -60,7 +63,7 @@ test("formatInstalls lists versions and marks the current and untested ones", ()
   });
   assert.equal(
     formatInstalls([{ appId: "hydra", current: "4.1.6", versions: [{ version: "4.1.6", receipt: receipt("4.1.6") }] }]),
-    "hydra 4.1.6 (current)  installed 2026-10-14 21:30  Recently downloaded sort",
+    "hydra 4.1.6 (current)  installed 2026-10-15 00:30  Recently downloaded sort",
   );
   const forced = { ...receipt("4.1.7"), release: { asset: "a", sha256: "a", untested: true } };
   assert.match(formatInstalls([{ appId: "hydra", current: "4.1.6", versions: [{ version: "4.1.7", receipt: forced }] }]), /^hydra 4\.1\.7 \(untested\)  installed/);

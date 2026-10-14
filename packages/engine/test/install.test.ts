@@ -137,5 +137,5 @@ test("the userns warning appears only when the sysctl is 1", () => {
   assert.equal(environmentWarnings("Demo", f).length, 2);
   writeFileSync(f, "0\n");
   assert.equal(environmentWarnings("Demo", f).length, 1);
-  assert.match(environmentWarnings("Demo", join(tmp(), "missing"))[0], /only one of them can run at a time/);
+  assert.match(environmentWarnings("Demo", join(tmp(), "missing"))[0], /same settings as a stock Demo installed from the official \.deb, so only one of them can run at a time/);
 });
