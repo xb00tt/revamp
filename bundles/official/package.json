@@ -5,7 +5,7 @@
   "type": "module",
   "license": "GPL-3.0-only",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --format=esm --platform=neutral --target=es2024 --outfile=dist/official.mjs"
+    "build": "node scripts/build.ts"
   },
   "dependencies": { "@revamp/sdk": "*" },
   "devDependencies": { "@revamp/engine": "*" }
