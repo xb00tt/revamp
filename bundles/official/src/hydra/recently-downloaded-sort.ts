@@ -1,6 +1,7 @@
 import { definePatch, fingerprint } from "@revamp/sdk";
 import { hydra } from "../apps.ts";
 import { useBundledUi } from "./bundled-ui.ts";
+import { hydraLocales } from "./locales.ts";
 
 export const librarySortSwitch = fingerprint({
   name: "library sort switch",
@@ -38,13 +39,11 @@ export const libraryFilterOption = fingerprint({
   pattern: '({ value: "recently_played", label: $T("recently_played") })',
 });
 
-const LABEL = "Recently downloaded";
-
 export const recentlyDownloadedSort = definePatch({
   name: "Recently downloaded sort",
   description: "Adds 'Recently downloaded' (newest download first) to the library and sidebar sort menus.",
   compatibleWith: [{ app: hydra, versions: ["4.1.6"] }],
-  dependsOn: [useBundledUi], // edits the bundled renderer, which Hydra only loads with this patch
+  dependsOn: [useBundledUi, hydraLocales], // edits the bundled renderer (loaded only with useBundledUi) and uses locale keys
   execute(ctx) {
     const sort = ctx.match(librarySortSwitch);
     sort.find('case "recently_played": { $$$ }').insertAfter(
@@ -59,13 +58,13 @@ export const recentlyDownloadedSort = definePatch({
     const entry = ctx.match(sidebarSortEntry);
     if (icon.file !== entry.file) throw new Error(`DownloadIcon (${icon.file}) and the sidebar sort menu (${entry.file}) are in different files`);
     entry.insertAfter(
-      `{ value: "recently_downloaded", label: ${entry.$T}("sort_recently_downloaded", { ns: "library", defaultValue: "${LABEL}" }), icon: ${entry.$JSX}.jsx(${icon.$ICON}, { size: 14 }) }`,
+      `{ value: "recently_downloaded", label: ${entry.$T}("sort_recently_downloaded", { ns: "library" }), icon: ${entry.$JSX}.jsx(${icon.$ICON}, { size: 14 }) }`,
     );
 
     ctx.match(sidebarSortSet).find('"recently_played"').insertAfter('"recently_downloaded"');
     ctx.match(librarySortList).find('"recently_played"').insertAfter('"recently_downloaded"');
 
     const option = ctx.match(libraryFilterOption);
-    option.insertAfter(`{ value: "recently_downloaded", label: ${option.$T}("sort_recently_downloaded", { defaultValue: "${LABEL}" }) }`);
+    option.insertAfter(`{ value: "recently_downloaded", label: ${option.$T}("sort_recently_downloaded") }`);
   },
 });
