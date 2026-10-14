@@ -293,3 +293,14 @@ test("a captured name that isn't declared at the top level fails its registry pa
   assert.equal(out.results.find((x) => x.name === "More like this ranking")!.status, "skipped");
   assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes("logger: logger"), false);
 });
+
+test("a captured name declared after the root render fails its registry patch instead of breaking Hydra's startup", () => {
+  // A const declared after the render isn't initialized yet when the registry line runs (temporal dead zone).
+  const declaration = 'const logger = log$2.scope("renderer");\n';
+  const changed = fixture("more-like-this-excerpt.js").replace(declaration, "") + declaration;
+  const out = job(NONE, hydraFiles({ [MORE_LIKE_THIS]: changed }));
+  const data = out.results.find((x) => x.name === "(internal patch #9: registry: game data)")!;
+  assert.equal(data.status, "failed");
+  assert.match(data.message!, /registry entry logger \(logger\) is declared after the root render/);
+  assert.equal(out.results.find((x) => x.name === "More like this ranking")!.status, "skipped");
+});

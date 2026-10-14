@@ -13,7 +13,7 @@ Node 26 is installed only at `~/.local/node-26`; every command needs it first (`
 ```bash
 export PATH="$HOME/.local/node-26/bin:$PATH"
 npm test                                    # all unit tests (node --test, TS runs natively, no network)
-npm run typecheck                           # tsc --noEmit over packages, bundles and tests
+npm run typecheck                           # two tsc --noEmit projects: the repo, then the TSX extension
 node --test packages/engine/test/api.test.ts                       # one test file
 node --test --test-name-pattern='unlisted version' packages/engine/test/api.test.ts   # one test
 npm run build -w @revamp/bundle-official    # scripts/build.ts: the extensions, then bundles/official/dist/official.mjs
@@ -52,7 +52,7 @@ All network, hashing, extraction and installing happen in the parent.
 
 **Bundle format.** One self-contained ESM file with no imports and no top-level `await`. The runner loads it with `require(esm)`, because `import()` from disk fails inside a Node SEA.
 
-**Extensions (spec §6, M3).** New UI ships as an extension: `bundles/official/src/hydra/extension/` (TSX, its own tsconfig; never imported by Node tests, which can't strip JSX).
+**Extensions (spec §6, M3).** New UI ships as an extension: `bundles/official/src/hydra/extension/` (its own tsconfig with JSX and DOM types). Node tests may import its plain `.ts` files but never a `.tsx` file or anything that imports one, because Node can't strip JSX.
 - `scripts/build.ts` compiles it with esbuild into a string and embeds it in the bundle through `define` (`__REVAMP_HYDRA_EXTENSION__`). Unit tests import bundle sources directly and get a placeholder.
 - The internal "Hydra extension loader" patch adds it as `out/renderer/assets/revamp-hydra.js`, loaded before Hydra's module script.
 - Registry patches (`src/hydra/registry.ts`) capture Hydra internals from the stock code that uses them. Each name is `resolve()`-checked as top-level, and they are assigned to `globalThis.__revamp.registry` just before the root render call.

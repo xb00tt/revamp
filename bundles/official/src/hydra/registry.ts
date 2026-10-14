@@ -20,7 +20,8 @@ function register(ctx: PatchContext, entries: Record<string, Entry>) {
   for (const [name, entry] of Object.entries(entries)) {
     const binding = "of" in entry ? entry.of : entry;
     if (binding.file !== render.file) throw new Error(`registry entry ${name} is in ${binding.file}, not in ${render.file}`);
-    binding.resolve(); // throws unless the name is declared at the top level, so it is in scope at the root render
+    // Declared at the top level (resolve() throws otherwise) and before the root render, so it exists when this runs.
+    if (binding.resolve().start > render.start) throw new Error(`registry entry ${name} (${binding}) is declared after the root render`);
     values.push(`${name}: ${"of" in entry ? `${entry.of}.${entry.path}` : entry}`);
   }
   render.insertBefore(`Object.assign((globalThis.__revamp ??= { registry: {}, mounts: {} }).registry, { ${values.join(", ")} });`);

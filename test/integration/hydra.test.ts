@@ -84,6 +84,7 @@ test(
     // internals once, just before the root render, and routes the stock section through mount().
     assert.ok(extractFile(asar, "out/renderer/assets/revamp-hydra.js").toString().includes('mounts["hydra.similarGames"]'));
     const html = extractFile(asar, "out/renderer/index.html").toString();
+    assert.ok(html.includes('<script type="module" crossorigin src="./assets/revamp-hydra.js"></script>'));
     assert.ok(html.indexOf("./assets/revamp-hydra.js") < html.indexOf('<script type="module" crossorigin src="./assets/index-'));
     assert.equal(patched[0].split("Object.assign((globalThis.__revamp ??= { registry: {}, mounts: {} }).registry, {").length, 5);
     assert.ok(/registry, \{ [^\n]* \}\);\nReactDOM\$1\.createRoot\(document\.getElementById\("root"\)\)/.test(patched[0]));
