@@ -262,3 +262,8 @@ export function describeBundle(b: BundleModule): BundleDescription {
       })),
   };
 }
+
+/** The JSON a parent sends to the sandboxed runner on stdin. */
+export type RunnerJob =
+  | { mode: "describe"; bundle: string }
+  | ({ mode: "patch"; bundle: string; staging: string; outDir: string } & JobInput);
