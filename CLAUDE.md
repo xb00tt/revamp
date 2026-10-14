@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Revamp is "Morphe for Linux Electron apps": it downloads an official release `.deb` (Hydra, Heroic), verifies its SHA-256, edits the built JavaScript inside `app.asar` at rest, and installs "<App> (Revamped)" next to the stock app in `~/.local/share/revamp`. TypeScript on Node 26, npm workspaces: `packages/{sdk,engine,cli}` and `bundles/official`.
 
-**Source of truth:** `docs/superpowers/specs/2026-10-14-revamp-v1-design.md` (binding design, milestones in §13) and one implementation plan per milestone in `docs/superpowers/plans/`. Read the spec section and the latest plan before changing behavior.
+**Source of truth:** `docs/superpowers/specs/2026-10-14-revamp-v1-design.md` (binding design, milestones in §13) and one implementation plan per milestone in `docs/superpowers/plans/`. Read the spec section and the latest plan before changing behavior. Plan code blocks were run on a fresh clone before hand-off: implementers copy them exactly, and a failure usually means a typo or the wrong Node.
 
 ## Commands
 
@@ -25,6 +25,9 @@ npm run revamp -- patches hydra             # CLI from source; also: patch <app>
 
 - The CLI and integration tests use `bundles/official/dist/official.mjs`. Rebuild it after changing bundle sources, or the CLI runs the old patches.
 - The integration tests (`REVAMP_INTEGRATION=1`) reuse the real download cache `~/.cache/revamp/releases`: Hydra 4.1.6, Heroic 2.22.3, and Hydra 4.0.6 forced as the deliberate mismatch. Without the cache that is about 430 MB of downloads. With it, a run takes about a minute.
+- Passing tests install nothing for the owner: integration runs use temp homes. To refresh the real menu entries, quit the app, then `npm run revamp -- patch <app>`; `npm run revamp -- list` shows what is installed.
+- The forced Hydra 4.0.6 test calls api.github.com unauthenticated (60 requests/hour); HTTP 403 there means wait and rerun.
+- Inspect a real build in a scratch dir: `dpkg-deb --fsys-tarfile <cached .deb> | tar -x`, then `extractFile` from `@electron/asar` (repo node_modules). Never eval app code; parse with acorn or regex.
 - Unit tests must not touch the network or the real home. Use temp dirs, local HTTP servers on port 0, or a stub `fetch`.
 
 ## Architecture (the parts that span files)
@@ -62,6 +65,7 @@ All network, hashing, extraction and installing happen in the parent.
 - Runtime dependencies stay at `acorn` and `xz-decompress` (engine). No native addons. `@electron/asar` is a test oracle only.
 - Names from bundles and `.deb` files are untrusted on the parent side: run them through `assertSafeName` / `assertSafeRelativePath` before they reach paths or URLs.
 - A production server runs on port 3000 on this machine: never listen on or connect to it. Never read or modify `/opt/Hydra` or `/opt/Heroic`.
-- The main checkout is shared with other Claude sessions: don't switch branches or stash there; do branch work in a git worktree.
+- The main checkout is shared with other Claude sessions: don't switch branches or stash there. Do branch work in a worktree: `git worktree add .worktrees/<name> -b <name>` (`.worktrees/` isn't in .gitignore; add it to `.git/info/exclude`), then `cp -a node_modules` into it.
+- The git identity (xb00tt) lives in this repo's `.git/config`, not globally: a scratch `git clone` needs `git config user.name/user.email` before it can commit.
 - Commits: conventional (`feat:`, `fix:`, `test:`, `docs:`), ending with a `Co-Authored-By: Claude …` trailer.
 - The owner (xb00tt) prefers plain-language explanations, one plan per milestone, and subagents on the cheapest model that can do the job.
