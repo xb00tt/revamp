@@ -241,23 +241,19 @@ class TarExtractor {
   }
 
   /**
-   * Walks a relative symlink target one segment at a time, the way the kernel will. It must stay inside the
-   * output directory and must not pass through another archive symlink (where ".." would mean something else).
+   * A relative symlink target may climb ("..") only as a leading run, from the link's own directory, which
+   * contains no symlinks (see dest()), and never above the output root. A ".." after a name could climb out of
+   * a symlink created earlier or later, so it is refused whatever the entry order. Descending stays inside,
+   * because every symlink's own target is held to the same rule.
    */
   private checkLinkTarget(rel: string, link: string, path: string): void {
-    const parts = rel.split("/").slice(0, -1);
     const segments = link.split("/").filter((s) => s !== "" && s !== ".");
-    segments.forEach((segment, i) => {
-      if (segment === "..") {
-        if (parts.length === 0) throw new DebError(`symlink ${path} -> ${link} points outside the archive`);
-        parts.pop();
-        return;
-      }
-      parts.push(segment);
-      if (i < segments.length - 1 && this.symlinks.has(parts.join("/"))) {
-        throw new DebError(`symlink ${path} -> ${link} passes through another symlink (${parts.join("/")})`);
-      }
-    });
+    const firstName = segments.findIndex((s) => s !== "..");
+    const climbs = firstName === -1 ? segments.length : firstName;
+    if (segments.slice(climbs).includes("..")) {
+      throw new DebError(`symlink ${path} -> ${link} uses ".." after a directory name`);
+    }
+    if (climbs > rel.split("/").length - 1) throw new DebError(`symlink ${path} -> ${link} points outside the archive`);
   }
 
   private dest(rel: string): string {

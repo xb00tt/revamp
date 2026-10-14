@@ -88,7 +88,13 @@ const hostile: Array<[string, Buffer[], RegExp]> = [
     // "a/../.." normalizes to the root, but on disk a is a link to "." so c really points above it.
     "symlink targets that pass through another symlink",
     [tarEntry("app/a", "", { type: "2", linkname: "." }), tarEntry("app/c", "", { type: "2", linkname: "a/../.." })],
-    /through another symlink/,
+    /after a directory name/,
+  ],
+  [
+    // Same trick with the entries reversed: when c is created, a is not a symlink yet.
+    "symlink targets that climb after a name, whatever the entry order",
+    [tarEntry("app/c", "", { type: "2", linkname: "a/../.." }), tarEntry("app/a", "", { type: "2", linkname: "." })],
+    /after a directory name/,
   ],
   ["device nodes", [tarEntry("app/dev", "", { type: "3" })], /unsupported tar entry type/],
   ["duplicate paths", [tarEntry("app/a", "1"), tarEntry("app/a", "2")], /duplicate/],
