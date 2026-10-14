@@ -81,6 +81,13 @@ test("HTTP errors reject with the status", async (t) => {
   assert.equal(existsSync(dest), false);
 });
 
+test("a 403 from the download server gives the plain status, without the GitHub API hint", async () => {
+  const forbidden: typeof fetch = async () => new Response("denied", { status: 403 });
+  await assert.rejects(downloadVerified({ url: "https://example.test/file.deb", dest: join(tmp(), "f"), sha256: sha, fetch: forbidden }), {
+    message: "GET https://example.test/file.deb failed: HTTP 403",
+  });
+});
+
 test("an invalid expected hash rejects before any request", async (t) => {
   const s = await serve();
   t.after(s.close);
@@ -103,6 +110,7 @@ test("releaseDigest reads GitHub's SHA-256 for one release asset, and says why w
   await assert.rejects(releaseDigest({ ...o, fetch: github(404, {}) }), /hydralauncher\/hydra has no release v4\.1\.7 on GitHub/);
   await assert.rejects(releaseDigest({ ...o, fetch: github(403, {}) }), /HTTP 403 \(GitHub allows 60 API requests an hour/);
   await assert.rejects(releaseDigest({ ...o, fetch: github(200, { assets: [] }) }), /has no asset hydralauncher_4\.1\.7_amd64\.deb/);
+  await assert.rejects(releaseDigest({ ...o, fetch: github(200, { assets: [null] }) }), /has no asset hydralauncher_4\.1\.7_amd64\.deb/);
   for (const digest of [null, "sha512:abc", `sha256:${"Z".repeat(64)}`]) {
     await assert.rejects(releaseDigest({ ...o, fetch: github(200, { assets: [{ name: o.asset, digest }] }) }), /publishes no SHA-256/);
   }

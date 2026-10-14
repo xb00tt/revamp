@@ -37,7 +37,7 @@ export async function downloadVerified(o: DownloadOptions): Promise<"cached" | "
   const part = `${o.dest}.part`;
   try {
     const res = await (o.fetch ?? fetch)(o.url, { redirect: "follow" });
-    if (!res.ok || !res.body) throw new DownloadError(`GET ${o.url} failed: HTTP ${res.status}${res.status === 403 ? " (GitHub allows 60 API requests an hour without a token; try again later)" : ""}`);
+    if (!res.ok || !res.body) throw new DownloadError(`GET ${o.url} failed: HTTP ${res.status}`);
     const total = Number(res.headers.get("content-length")) || undefined;
     const hash = createHash("sha256");
     let received = 0;
@@ -87,7 +87,7 @@ export async function releaseDigest(o: DigestOptions): Promise<string> {
   if (!res.ok) throw new DownloadError(`GET ${url} failed: HTTP ${res.status}${res.status === 403 ? " (GitHub allows 60 API requests an hour without a token; try again later)" : ""}`);
   const release = (await res.json().catch(() => undefined)) as { assets?: Array<{ name?: unknown; digest?: unknown }> } | undefined;
   if (!Array.isArray(release?.assets)) throw new DownloadError(`GET ${url} returned an unexpected response`);
-  const asset = release.assets.find((a) => a.name === o.asset);
+  const asset = release.assets.find((a) => a?.name === o.asset);
   if (!asset) throw new DownloadError(`release ${o.tag} of ${o.repo} has no asset ${o.asset}`);
   const sha256 = typeof asset.digest === "string" ? /^sha256:([0-9a-f]{64})$/.exec(asset.digest)?.[1] : undefined;
   if (!sha256) throw new DownloadError(`GitHub publishes no SHA-256 for ${o.asset} of ${o.repo} ${o.tag}, so it can't be verified`);

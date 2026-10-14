@@ -137,6 +137,13 @@ test("Hydra locales ignores nested objects inside a library namespace", () => {
   assert.ok(en.endsWith(`"nested": { "x": "X" }, "sort_recently_downloaded": "Recently downloaded", "sort_recently_added": "Recently added" };`));
 });
 
+test("Hydra locales names a library namespace that isn't an object literal", () => {
+  const locales = fixture("locales-excerpt.js").replace(/^const library\$y = (\{.*\});$/m, "const library$y = Object.freeze($1);");
+  const r = job(NONE, hydraFiles({ [LOCALES]: locales })).results.find((x) => x.internal)!;
+  assert.equal(r.status, "failed");
+  assert.equal(r.message, `the en library namespace (${LOCALES}:11) is not an object literal`);
+});
+
 test("the sorts are skipped, naming the internal patch, when the locales can't be found", () => {
   const out = job(NONE, hydraFiles({ [LOCALES]: fixture("locales-excerpt.js").replace("  bg\n};", "  bg: \"bg\"\n};") }));
   const locales = out.results.find((r) => r.internal)!;

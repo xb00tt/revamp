@@ -30,6 +30,7 @@ export const hydraLocales = definePatch({
     const locales: Record<string, Match> = { en: resources.$EN.resolve(), bg: resources.$BG.resolve(), "pt-BR": resources.$PT_BR.resolve() };
     for (const [lang, strings] of Object.entries(LIBRARY_STRINGS)) {
       const library = locales[lang].find("library: $NS").$NS.resolve();
+      if (library.node?.type !== "ObjectExpression") throw new Error(`the ${lang} library namespace (${library.file}:${library.line}) is not an object literal`);
       const entries = library.findAll("$KEY: $VALUE").filter((e) => library.node!.properties.includes(e.node)); // not the properties of nested objects
       if (entries.length === 0) throw new Error(`the ${lang} library namespace (${library.file}:${library.line}) is empty`);
       const have = new Set(entries.map((e) => String(e.$KEY.node!.value ?? e.$KEY.node!.name)));
