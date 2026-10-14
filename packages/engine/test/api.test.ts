@@ -20,8 +20,11 @@ async function setup(bundleOptions: { extra?: string; minEngine?: string } = {},
   let hits = 0;
   const server = createServer((req, res) => {
     hits++;
-    if (req.url === "/example/demo/releases/download/v1.0.0/demo_1.0.0_amd64.deb") res.end(deb);
-    else {
+    // 1.0.0 is listed in the bundle; 3.0.0 is not, so only GitHub's API knows its SHA-256.
+    if (/^\/example\/demo\/releases\/download\/v([13])\.0\.0\/demo_\1\.0\.0_amd64\.deb$/.test(req.url!)) res.end(deb);
+    else if (req.url === "/repos/example/demo/releases/tags/v3.0.0") {
+      res.end(JSON.stringify({ assets: [{ name: "demo_3.0.0_amd64.deb", digest: `sha256:${sha256}` }] }));
+    } else {
       res.statusCode = 404;
       res.end();
     }
@@ -32,12 +35,8 @@ async function setup(bundleOptions: { extra?: string; minEngine?: string } = {},
   const writeBundle = (o = bundleOptions) => writeDemoBundle(bundlePath, { sha256, ...o });
   writeBundle();
   const paths = revampPaths({ HOME: join(root, "home") });
-  const opts: PatchAppOptions = {
-    appId: "demo",
-    bundlePath,
-    paths,
-    releaseBaseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-  };
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const opts: PatchAppOptions = { appId: "demo", bundlePath, paths, releaseBaseUrl: base, apiBaseUrl: base };
   return { opts, paths, writeBundle, hits: () => hits, close: () => server.close() };
 }
 const appRoot = (s: { paths: { data: string } }) => join(s.paths.data, "apps/demo");
@@ -194,4 +193,20 @@ test("desktop file and icon links are never moved into .revamp-meta", async (t) 
   const r = await patchApp(s.opts);
   assert.equal(r.exitCode, 0);
   assert.equal(readFileSync(join(appRoot(s), "1.0.0/revamp-icon.png"), "utf8"), "big-png");
+});
+
+test("an unlisted version needs --force and is verified against GitHub's published SHA-256", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  await assert.rejects(patchApp({ ...s.opts, version: "3.0.0" }), /not supported.*add --force/);
+  assert.equal(s.hits(), 0);
+  const r = await patchApp({ ...s.opts, version: "3.0.0", force: true });
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.untested, true);
+  assert.match(r.warnings[0], /Demo 3\.0\.0 is untested: bundle "Demo bundle" doesn't list it/);
+  const receipt = JSON.parse(readFileSync(join(appRoot(s), "3.0.0/revamp.json"), "utf8"));
+  assert.equal(receipt.release.untested, true);
+  assert.equal(receipt.release.sha256, createHash("sha256").update(readFileSync(join(s.paths.cache, "releases/demo/3.0.0/demo_3.0.0_amd64.deb"))).digest("hex"));
+  await assert.rejects(patchApp({ ...s.opts, version: "4.0.0", force: true }), /example\/demo has no release v4\.0\.0 on GitHub/);
+  assert.equal((await patchApp(s.opts)).untested, false);
 });

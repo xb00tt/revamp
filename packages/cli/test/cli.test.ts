@@ -17,6 +17,7 @@ test("formatPatchResult shows each patch, failures under it, and notes", () => {
     appId: "hydra",
     appName: "Hydra",
     version: "4.1.6",
+    untested: false,
     installed: true,
     dryRun: false,
     installDir: "/x/apps/hydra/4.1.6",
@@ -42,9 +43,10 @@ test("formatPatchResult shows each patch, failures under it, and notes", () => {
     ].join("\n"),
   );
   assert.match(formatPatchResult({ ...r, installed: false, aborted: 'required patch "X" failed', exitCode: 1 }), /nothing installed: required patch "X" failed/);
+  assert.match(formatPatchResult({ ...r, version: "4.1.7", untested: true }), /^Hydra 4\.1\.7 \(untested\): 1\/2 patches apply/);
 });
 
-test("formatInstalls lists versions and marks the current one", () => {
+test("formatInstalls lists versions and marks the current and untested ones", () => {
   assert.equal(formatInstalls([]), "No Revamped apps installed.");
   const receipt = (version: string) => ({
     app: "hydra",
@@ -59,6 +61,8 @@ test("formatInstalls lists versions and marks the current one", () => {
     formatInstalls([{ appId: "hydra", current: "4.1.6", versions: [{ version: "4.1.6", receipt: receipt("4.1.6") }] }]),
     "hydra 4.1.6 (current)  installed 2026-10-14 21:30  Recently downloaded sort",
   );
+  const forced = { ...receipt("4.1.7"), release: { asset: "a", sha256: "a", untested: true } };
+  assert.match(formatInstalls([{ appId: "hydra", current: "4.1.6", versions: [{ version: "4.1.7", receipt: forced }] }]), /^hydra 4\.1\.7 \(untested\)  installed/);
 });
 
 test("the CLI prints usage, lists nothing in an empty home, and rejects unknown commands", () => {

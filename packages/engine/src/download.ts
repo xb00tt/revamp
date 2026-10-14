@@ -63,3 +63,31 @@ export async function downloadVerified(o: DownloadOptions): Promise<"cached" | "
     rmSync(part, { force: true });
   }
 }
+
+export interface DigestOptions {
+  /** "owner/repo" */
+  repo: string;
+  tag: string;
+  asset: string;
+  /** Tests point this at a local server; defaults to https://api.github.com. */
+  apiBaseUrl?: string;
+  fetch?: typeof fetch;
+}
+
+/**
+ * The SHA-256 GitHub publishes for a release asset (its `digest` field). Only versions a bundle doesn't list
+ * are verified this way, because the bundle has no hash for them.
+ */
+export async function releaseDigest(o: DigestOptions): Promise<string> {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(o.repo)) throw new DownloadError(`invalid GitHub repository "${o.repo}"`);
+  const url = `${o.apiBaseUrl ?? "https://api.github.com"}/repos/${o.repo}/releases/tags/${encodeURIComponent(o.tag)}`;
+  const res = await (o.fetch ?? fetch)(url, { headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" } });
+  if (res.status === 404) throw new DownloadError(`${o.repo} has no release ${o.tag} on GitHub`);
+  if (!res.ok) throw new DownloadError(`GET ${url} failed: HTTP ${res.status}`);
+  const release = (await res.json()) as { assets?: Array<{ name?: unknown; digest?: unknown }> };
+  const asset = release.assets?.find((a) => a.name === o.asset);
+  if (!asset) throw new DownloadError(`release ${o.tag} of ${o.repo} has no asset ${o.asset}`);
+  const sha256 = typeof asset.digest === "string" ? /^sha256:([0-9a-f]{64})$/.exec(asset.digest)?.[1] : undefined;
+  if (!sha256) throw new DownloadError(`GitHub publishes no SHA-256 for ${o.asset} of ${o.repo} ${o.tag}, so it can't be verified`);
+  return sha256;
+}

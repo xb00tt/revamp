@@ -13,7 +13,7 @@ export function formatPatchResult(r: PatchAppResult): string {
       : r.dryRun
         ? "dry run, nothing installed"
         : "not installed";
-  const lines = [`${r.appName} ${r.version}: ${applied}/${ran.length} patches apply (${outcome})`];
+  const lines = [`${r.appName} ${r.version}${r.untested ? " (untested)" : ""}: ${applied}/${ran.length} patches apply (${outcome})`];
   for (const x of shown) {
     const tag = x.status === "disabled" || x.status === "incompatible" ? ` [${x.status}]` : "";
     lines.push(`  ${MARK[x.status]} ${x.name}${x.required ? " (required)" : ""}${tag}`);
@@ -33,7 +33,8 @@ export function formatInstalls(apps: InstalledApp[]): string {
     for (const v of a.versions) {
       const when = v.receipt.installedAt.slice(0, 16).replace("T", " ");
       const patches = v.receipt.patches.filter((p) => p.status === "applied" && !p.internal && !p.required).map((p) => p.name);
-      lines.push(`${a.appId} ${v.version}${v.version === a.current ? " (current)" : ""}  installed ${when}  ${patches.join(", ")}`.trimEnd());
+      const tags = `${v.version === a.current ? " (current)" : ""}${v.receipt.release.untested ? " (untested)" : ""}`;
+      lines.push(`${a.appId} ${v.version}${tags}  installed ${when}  ${patches.join(", ")}`.trimEnd());
     }
   }
   return lines.join("\n");

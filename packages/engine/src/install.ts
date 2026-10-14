@@ -20,7 +20,8 @@ import { appDir, assertSafeName, type Paths } from "./paths.ts";
 export interface Receipt {
   app: string;
   version: string;
-  release: { asset: string; sha256: string };
+  /** untested: the bundle didn't list the version; it was verified against GitHub's published SHA-256. Absent in M1 receipts. */
+  release: { asset: string; sha256: string; untested?: boolean };
   bundle: { name: string; version: string; sha256: string };
   patches: PatchResult[];
   selection: Selection;

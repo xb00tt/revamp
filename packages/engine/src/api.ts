@@ -4,7 +4,7 @@ import { assertAsarPath, readAsar, writeAsar } from "./asar.ts";
 import { loadSelection, resolveSelection, saveSelection } from "./config.ts";
 import { extractDeb, type EntryKind } from "./deb.ts";
 import { parseDesktopEntry } from "./desktop.ts";
-import { downloadVerified, fileSha256 } from "./download.ts";
+import { downloadVerified, fileSha256, releaseDigest } from "./download.ts";
 import type { PatchResult } from "./graph.ts";
 import { environmentWarnings, ICON_FILE, installStaged, lockApp, newStaging } from "./install.ts";
 import { ASAR_PATH, patchesForApp, type AppInfo, type BundleDescription, type SandboxPatchOutput } from "./job.ts";
@@ -25,6 +25,8 @@ export interface PatchAppOptions {
   paths?: Paths;
   /** Tests point this at a local server; defaults to https://github.com. */
   releaseBaseUrl?: string;
+  /** Tests point this at a local server; defaults to https://api.github.com. */
+  apiBaseUrl?: string;
   fetch?: typeof fetch;
   log?: (line: string) => void;
 }
@@ -33,6 +35,8 @@ export interface PatchAppResult {
   appId: string;
   appName: string;
   version: string;
+  /** The bundle doesn't list this version; it was verified only against GitHub's published SHA-256. */
+  untested: boolean;
   results: PatchResult[];
   installed: boolean;
   dryRun: boolean;
@@ -79,12 +83,18 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
   const bundleName = desc.manifest.name;
   const app = findApp(desc, o.appId);
   const version = o.version ?? newestStable(app.versions);
-  if (!version || !Object.hasOwn(app.versions, version)) {
+  if (!version) throw new Error(`bundle "${bundleName}" has no stable ${app.name} version; pass --version`);
+  assertSafeName("version", version);
+  const info = Object.hasOwn(app.versions, version) ? app.versions[version] : undefined;
+  if (!info && !o.force) {
     const supported = Object.keys(app.versions).sort(compareVersions).join(", ");
-    throw new Error(`${app.name} ${version ?? "(no stable version)"} is not supported by bundle "${bundleName}" (supported: ${supported})`);
+    throw new Error(
+      `${app.name} ${version} is not supported by bundle "${bundleName}" (supported: ${supported}); ` +
+        "add --force to patch it anyway, verified only against GitHub's published SHA-256",
+    );
   }
-  const info = app.versions[version];
-  if (info.experimental && !o.force) throw new Error(`${app.name} ${version} is experimental in this bundle; add --force to patch it anyway`);
+  if (info?.experimental && !o.force) throw new Error(`${app.name} ${version} is experimental in this bundle; add --force to patch it anyway`);
+  const untested = !info;
   const asset = assertSafeName("asset", fill(app.release.asset, version));
   const tag = fill(app.release.tag, version);
   const resolved = resolveSelection(app, patchesForApp(desc.patches, app.id), loadSelection(paths, app.id), {
@@ -94,14 +104,20 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
   });
   const selection = resolved.selection;
   const warnings = [...resolved.warnings];
+  if (untested) warnings.push(`${app.name} ${version} is untested: bundle "${bundleName}" doesn't list it, so it was verified only against GitHub's published SHA-256.`);
 
   // One job per app at a time; this also sweeps staging dirs that interrupted jobs left behind.
   const unlock = lockApp(paths, app.id);
   try {
+    let sha256 = info?.sha256;
+    if (!sha256) {
+      log(`Looking up GitHub's SHA-256 for ${asset}…`);
+      sha256 = await releaseDigest({ repo: app.release.github, tag, asset, apiBaseUrl: o.apiBaseUrl, fetch: o.fetch });
+    }
     const debPath = releasePath(paths, app.id, version, asset);
     log(`Downloading ${asset}…`);
     const url = `${o.releaseBaseUrl ?? "https://github.com"}/${app.release.github}/releases/download/${tag}/${asset}`;
-    const how = await downloadVerified({ url, dest: debPath, sha256: info.sha256, fetch: o.fetch });
+    const how = await downloadVerified({ url, dest: debPath, sha256, fetch: o.fetch });
     if (how === "replaced") log("The cached download had the wrong SHA-256, so it was downloaded again.");
 
     const staging = newStaging(paths, app.id);
@@ -119,7 +135,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
         { mode: "patch", bundle: bundlePath, staging, outDir, appId: app.id, version, selection, force: o.force ?? false, stockDesktop },
         { read: [staging, bundlePath], write: [outDir] },
       );
-      const base = { appId: app.id, appName: app.name, version, results: job.results, logs: job.logs, dryRun: o.dryRun ?? false, warnings };
+      const base = { appId: app.id, appName: app.name, version, untested, results: job.results, logs: job.logs, dryRun: o.dryRun ?? false, warnings };
       if (job.aborted) return { ...base, installed: false, aborted: job.aborted, exitCode: 1 };
       const exitCode = job.results.some((r) => r.status === "failed" || r.status === "skipped") ? 2 : 0;
       if (o.dryRun) return { ...base, installed: false, exitCode };
@@ -143,7 +159,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
         receipt: {
           app: app.id,
           version,
-          release: { asset, sha256: info.sha256 },
+          release: { asset, sha256, untested },
           bundle: { name: bundleName, version: desc.manifest.version, sha256: await fileSha256(bundlePath) },
           patches: job.results,
           selection,

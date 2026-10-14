@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { downloadVerified } from "../src/download.ts";
+import { downloadVerified, releaseDigest } from "../src/download.ts";
 
 const body = Buffer.from("pretend this is a .deb\n".repeat(1000));
 const sha = createHash("sha256").update(body).digest("hex");
@@ -86,4 +86,25 @@ test("an invalid expected hash rejects before any request", async (t) => {
   t.after(s.close);
   await assert.rejects(downloadVerified({ url: `${s.base}/file.deb`, dest: join(tmp(), "f"), sha256: "abc" }), /invalid expected sha256/);
   assert.equal(s.hits(), 0);
+});
+
+test("releaseDigest reads GitHub's SHA-256 for one release asset, and says why when it can't", async () => {
+  const urls: string[] = [];
+  const github =
+    (status: number, json: unknown): typeof fetch =>
+    async (url) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify(json), { status });
+    };
+  const o = { repo: "hydralauncher/hydra", tag: "v4.1.7", asset: "hydralauncher_4.1.7_amd64.deb" };
+  const release = { assets: [{ name: "Hydra-4.1.7.AppImage", digest: `sha256:${"b".repeat(64)}` }, { name: o.asset, digest: `sha256:${sha}` }] };
+  assert.equal(await releaseDigest({ ...o, fetch: github(200, release) }), sha);
+  assert.equal(urls[0], "https://api.github.com/repos/hydralauncher/hydra/releases/tags/v4.1.7");
+  await assert.rejects(releaseDigest({ ...o, fetch: github(404, {}) }), /hydralauncher\/hydra has no release v4\.1\.7 on GitHub/);
+  await assert.rejects(releaseDigest({ ...o, fetch: github(403, {}) }), /HTTP 403/);
+  await assert.rejects(releaseDigest({ ...o, fetch: github(200, { assets: [] }) }), /has no asset hydralauncher_4\.1\.7_amd64\.deb/);
+  for (const digest of [null, "sha512:abc", `sha256:${"Z".repeat(64)}`]) {
+    await assert.rejects(releaseDigest({ ...o, fetch: github(200, { assets: [{ name: o.asset, digest }] }) }), /publishes no SHA-256/);
+  }
+  await assert.rejects(releaseDigest({ ...o, repo: "x/../../evil", fetch: github(200, release) }), /invalid GitHub repository/);
 });
