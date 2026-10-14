@@ -187,8 +187,7 @@ class TarExtractor {
     mkdirSync(dirname(dest), { recursive: true });
     if (type === "2") {
       if (isAbsolute(link)) throw new DebError(`absolute symlink ${path} -> ${link} points outside the archive`);
-      const target = resolve(dirname(dest), link);
-      if (!this.inside(target)) throw new DebError(`symlink ${path} -> ${link} points outside the archive`);
+      this.checkLinkTarget(relKey(rel), link, path);
       symlinkSync(link, dest);
       this.symlinks.add(relKey(rel));
       this.result.symlinks++;
@@ -234,6 +233,26 @@ class TarExtractor {
       else if (b.type === "K") this.longLink = cstring(data, 0, data.length);
       else this.pax = parsePax(data);
     }
+  }
+
+  /**
+   * Walks a relative symlink target one segment at a time, the way the kernel will. It must stay inside the
+   * output directory and must not pass through another archive symlink (where ".." would mean something else).
+   */
+  private checkLinkTarget(rel: string, link: string, path: string): void {
+    const parts = rel.split("/").slice(0, -1);
+    const segments = link.split("/").filter((s) => s !== "" && s !== ".");
+    segments.forEach((segment, i) => {
+      if (segment === "..") {
+        if (parts.length === 0) throw new DebError(`symlink ${path} -> ${link} points outside the archive`);
+        parts.pop();
+        return;
+      }
+      parts.push(segment);
+      if (i < segments.length - 1 && this.symlinks.has(parts.join("/"))) {
+        throw new DebError(`symlink ${path} -> ${link} passes through another symlink (${parts.join("/")})`);
+      }
+    });
   }
 
   private dest(rel: string): string {
