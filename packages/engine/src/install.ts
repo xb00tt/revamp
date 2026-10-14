@@ -1,0 +1,179 @@
+import { spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import type { Selection } from "./config.ts";
+import { serializeDesktopEntry } from "./desktop.ts";
+import type { PatchResult } from "./graph.ts";
+import { appDir, assertSafeName, type Paths } from "./paths.ts";
+
+export interface Receipt {
+  app: string;
+  version: string;
+  release: { asset: string; sha256: string };
+  bundle: { name: string; version: string; sha256: string };
+  patches: PatchResult[];
+  selection: Selection;
+  installedAt: string;
+}
+
+export const ICON_FILE = "revamp-icon.png";
+
+export function newStaging(paths: Paths, appId: string): string {
+  const root = appDir(paths, appId);
+  mkdirSync(root, { recursive: true });
+  return mkdtempSync(join(root, ".staging-"));
+}
+
+export interface InstallInput {
+  paths: Paths;
+  appId: string;
+  version: string;
+  executable: string;
+  staging: string;
+  receipt: Receipt;
+  desktopEntry: Record<string, string>;
+}
+
+/** Moves a finished staging dir into place, points `current` at it, writes the menu entry and prunes old versions. */
+export function installStaged(i: InstallInput): string {
+  const root = appDir(i.paths, i.appId);
+  const exe = join(root, "current", i.executable);
+  if (/["`$\\]/.test(exe)) throw new Error(`a .desktop Exec line can't hold the install path ${exe}`);
+  const dest = join(root, assertSafeName("version", i.version));
+  writeFileSync(join(i.staging, "revamp.json"), JSON.stringify(i.receipt, null, 2) + "\n");
+  let aside: string | undefined;
+  if (existsSync(dest)) {
+    aside = join(root, `.replaced-${i.version}-${process.pid}`);
+    renameSync(dest, aside);
+  }
+  renameSync(i.staging, dest);
+  if (aside) rmSync(aside, { recursive: true, force: true });
+  pointCurrent(root, i.version);
+  writeDesktopFile(i.paths, i.appId, exe, i.desktopEntry);
+  pruneVersions(root);
+  return dest;
+}
+
+function pointCurrent(root: string, version: string): void {
+  const tmp = join(root, `.current-${process.pid}`);
+  rmSync(tmp, { force: true });
+  symlinkSync(version, tmp);
+  renameSync(tmp, join(root, "current"));
+}
+
+export function currentVersion(root: string): string | undefined {
+  try {
+    return readlinkSync(join(root, "current"));
+  } catch {
+    return undefined;
+  }
+}
+
+export interface InstalledVersion {
+  version: string;
+  receipt: Receipt;
+}
+
+/** Finished installs (those with a receipt), newest first. */
+export function installedVersions(root: string): InstalledVersion[] {
+  if (!existsSync(root)) return [];
+  const out: InstalledVersion[] = [];
+  for (const d of readdirSync(root, { withFileTypes: true })) {
+    if (!d.isDirectory() || d.name.startsWith(".")) continue;
+    try {
+      out.push({ version: d.name, receipt: JSON.parse(readFileSync(join(root, d.name, "revamp.json"), "utf8")) });
+    } catch {
+      // no receipt: not a finished install
+    }
+  }
+  return out.sort((a, b) => b.receipt.installedAt.localeCompare(a.receipt.installedAt));
+}
+
+/** Keeps the version `current` points to plus the most recently installed other one. */
+export function pruneVersions(root: string): string[] {
+  const current = currentVersion(root);
+  const removed = installedVersions(root)
+    .filter((v) => v.version !== current)
+    .slice(1)
+    .map((v) => v.version);
+  for (const v of removed) rmSync(join(root, v), { recursive: true, force: true });
+  return removed;
+}
+
+export const desktopFilePath = (paths: Paths, appId: string) =>
+  join(paths.applications, `revamp-${assertSafeName("app id", appId)}.desktop`);
+
+function writeDesktopFile(paths: Paths, appId: string, exe: string, entry: Record<string, string>): void {
+  const current = join(appDir(paths, appId), "current");
+  const fieldCode = /%[fFuU]/.exec(entry.Exec ?? "")?.[0];
+  const final: Record<string, string> = { ...entry, Exec: `"${exe}"${fieldCode ? ` ${fieldCode}` : ""}` };
+  delete final.TryExec;
+  if (existsSync(join(current, ICON_FILE))) final.Icon = join(current, ICON_FILE);
+  mkdirSync(paths.applications, { recursive: true });
+  const file = desktopFilePath(paths, appId);
+  writeFileSync(`${file}.tmp`, serializeDesktopEntry(final));
+  renameSync(`${file}.tmp`, file);
+  refreshDesktopDatabase(paths);
+}
+
+function refreshDesktopDatabase(paths: Paths): void {
+  spawnSync("update-desktop-database", [paths.applications], { stdio: "ignore" }); // optional tool
+}
+
+export interface InstalledApp {
+  appId: string;
+  current: string | undefined;
+  versions: InstalledVersion[];
+}
+
+export function listInstalls(paths: Paths): InstalledApp[] {
+  const apps = join(paths.data, "apps");
+  if (!existsSync(apps)) return [];
+  return readdirSync(apps, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+    .map((d) => ({ appId: d.name, current: currentVersion(join(apps, d.name)), versions: installedVersions(join(apps, d.name)) }))
+    .filter((a) => a.versions.length > 0);
+}
+
+export function rollback(paths: Paths, appId: string): string {
+  const root = appDir(paths, appId);
+  const current = currentVersion(root);
+  const previous = installedVersions(root).find((v) => v.version !== current);
+  if (!previous) throw new Error(`no previous version of ${appId} to roll back to`);
+  pointCurrent(root, previous.version);
+  return previous.version;
+}
+
+export function uninstall(paths: Paths, appId: string): void {
+  const root = appDir(paths, appId);
+  if (!existsSync(root)) throw new Error(`${appId} is not installed`);
+  rmSync(root, { recursive: true, force: true });
+  rmSync(desktopFilePath(paths, appId), { force: true });
+  rmSync(join(paths.config, "apps", `${appId}.json`), { force: true });
+  refreshDesktopDatabase(paths);
+}
+
+export function environmentWarnings(appName: string, sysctl = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"): string[] {
+  const out = [`Revamped ${appName} shares settings with the stock app, so only one of them can run at a time.`];
+  try {
+    if (readFileSync(sysctl, "utf8").trim() === "1") {
+      out.push(
+        "This system restricts unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=1), so Electron's sandbox can't start in an app installed in your home folder. See docs/electron-sandbox.md.",
+      );
+    }
+  } catch {
+    // not an AppArmor system
+  }
+  return out;
+}
