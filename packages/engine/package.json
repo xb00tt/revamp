@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "type": "module",
   "license": "GPL-3.0-only",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@revamp/sdk": "*" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@revamp/sdk": "*",
+    "xz-decompress": "^0.2.3"
+  }
 }
