@@ -24,6 +24,8 @@ export interface Capture extends Editable {
   readonly text: string;
   readonly start: number;
   readonly end: number;
+  /** An identifier capture → its top-level declaration in the same file (see Match.resolve). */
+  resolve(): Match;
   toString(): string;
 }
 
@@ -38,6 +40,11 @@ export interface Match extends Editable {
   /** Exactly one match of `pattern` inside this match. */
   find(pattern: string): Match;
   findAll(pattern: string): Match[];
+  /**
+   * An identifier → its top-level declaration in the same file: a const/let/var initializer, or a function
+   * or class declaration. Local scopes are not searched.
+   */
+  resolve(): Match;
   readonly [capture: `$${string}`]: Capture;
 }
 
@@ -151,7 +158,10 @@ export function defineApp(def: Omit<AppDef, "kind" | "required"> & { required?: 
 }
 
 export interface PatchDef<O extends Options> {
-  /** Omit to make an internal patch, hidden from users and reached through dependsOn. */
+  /**
+   * Omit to make an internal patch, hidden from users and reached through dependsOn.
+   * An internal patch's description names it in error messages: "(internal patch #4: Hydra locales)".
+   */
   name?: string;
   description?: string;
   /** Omit for a universal patch (any app, default off unless an app requires it). */

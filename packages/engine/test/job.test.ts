@@ -105,11 +105,11 @@ test("dependencies first, ties by name, internal patches included, finalize in r
   const calls: string[] = [];
   const mk = (name: string, deps: Patch<any>[]) =>
     definePatch({ name, compatibleWith: [{ app }], dependsOn: deps, execute: () => void calls.push(`exec ${name}`), finalize: () => void calls.push(`fin ${name}`) });
-  const internal = definePatch({ execute: () => void calls.push("exec internal") });
+  const internal = definePatch({ description: "Helper", execute: () => void calls.push("exec internal") });
   const b = mk("B", []);
   const out = run(bundle([mk("C", [b]), b, mk("A", [internal])]));
   assert.deepEqual(calls, ["exec B", "exec C", "exec internal", "exec A", "fin A", "fin C", "fin B"]);
-  assert.ok(out.results.some((r) => r.internal && r.status === "applied"));
+  assert.deepEqual(out.results.filter((r) => r.internal).map((r) => [r.name, r.status]), [["(internal patch #3: Helper)", "applied"]]);
 });
 
 test("options: defaults, given values, validation and unknown keys", () => {

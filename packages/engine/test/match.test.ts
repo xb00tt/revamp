@@ -71,3 +71,30 @@ test("find() searches inside the match and needs exactly one hit", () => {
   assert.equal(t.result(), "function f() { g(1); h(); } g(3);");
   assert.equal(m.line, 1);
 });
+
+test("resolve() follows identifiers to top-level declarations, and edits land there", () => {
+  const code = [
+    "const en = { library: lib, home };",
+    'const lib = { "a": "A" };',
+    "export function home() {}",
+    "const resources = { en, home };",
+  ].join("\n");
+  const t = matchIn(code, "const resources = { en: $EN, home: $H }");
+  const [m] = t.matches;
+  const en = m.$EN.resolve();
+  assert.equal(en.text, "{ library: lib, home }");
+  assert.equal(en.line, 1);
+  const lib = en.find("library: $NS").$NS.resolve();
+  assert.equal(lib.text, '{ "a": "A" }');
+  assert.equal(m.$H.resolve().node!.type, "FunctionDeclaration");
+  lib.find('"a": $V').insertAfter('"b": "B"');
+  assert.equal(t.result().split("\n")[1], 'const lib = { "a": "A", "b": "B" };');
+});
+
+test("resolve() names the problem: not an identifier, undeclared, declared twice, no value", () => {
+  const [m] = matchIn("var x = 1;\nvar x = 2;\nlet y;\ng(x, y, z, 1);", "g($X, $Y, $Z, $N)").matches;
+  assert.throws(() => m.$X.resolve(), /x is declared 2 times at the top level of a\.js/);
+  assert.throws(() => m.$Y.resolve(), /y is declared without a value in a\.js/);
+  assert.throws(() => m.$Z.resolve(), /z \(a\.js:4\) has no top-level declaration in a\.js/);
+  assert.throws(() => m.$N.resolve(), /needs an identifier; a\.js:4 is a Literal/);
+});

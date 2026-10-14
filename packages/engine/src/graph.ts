@@ -66,7 +66,7 @@ export function planPatches(app: AppDef, version: string, bundlePatches: Patch[]
   };
   for (const p of chosen) visit(p, []);
   nodes.forEach((p, i) => {
-    if (!labels.has(p)) labels.set(p, p.name ?? `(internal patch #${i + 1})`);
+    if (!labels.has(p)) labels.set(p, p.name ?? `(internal patch #${i + 1}${p.description ? `: ${p.description}` : ""})`);
     if (!results.has(p)) results.set(p, { name: labels.get(p)!, status: "disabled", required: false, internal: !p.name });
   });
 

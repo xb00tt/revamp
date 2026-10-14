@@ -56,6 +56,26 @@ export class Range {
     this.edit(this.end, this.end, list === "comma" ? `, ${code}` : list === "lines" ? `\n${code}` : code);
   }
 
+  /** Follows an identifier to its top-level declaration in the same file: the initializer, function or class. */
+  resolve(): MatchImpl {
+    const where = `${this.file}:${lineAt(this.host.sources.text(this.file), Math.max(this.start, 0))}`;
+    if (this.node?.type !== "Identifier") throw new Error(`resolve() needs an identifier; ${where} is ${this.node ? `a ${this.node.type}` : "not a node"}`);
+    const name: string = this.node.name;
+    // ponytail: top-level names only; a local variable that shadows one still resolves to the top-level one.
+    const found: Node[] = [];
+    for (const top of this.host.sources.parsed(this.file).ast.body as Node[]) {
+      const s = top.type === "ExportNamedDeclaration" && top.declaration ? top.declaration : top;
+      if (s.type === "VariableDeclaration") {
+        for (const d of s.declarations) if (d.id.type === "Identifier" && d.id.name === name) found.push(d);
+      } else if ((s.type === "FunctionDeclaration" || s.type === "ClassDeclaration") && s.id?.name === name) found.push(s);
+    }
+    if (found.length === 0) throw new Error(`resolve(): ${name} (${where}) has no top-level declaration in ${this.file}`);
+    if (found.length > 1) throw new Error(`resolve(): ${name} is declared ${found.length} times at the top level of ${this.file}`);
+    const target = found[0].type === "VariableDeclarator" ? found[0].init : found[0];
+    if (!target) throw new Error(`resolve(): ${name} is declared without a value in ${this.file}`);
+    return new MatchImpl(this.host, this.file, target.start, target.end, target, new Map());
+  }
+
   remove(): void {
     const link = this.link();
     if (link?.index !== undefined && isCommaList(link)) {
