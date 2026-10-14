@@ -1,0 +1,12 @@
+{
+  "name": "@revamp/bundle-official",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --platform=neutral --target=es2024 --outfile=dist/official.mjs"
+  },
+  "dependencies": { "@revamp/sdk": "*" },
+  "devDependencies": { "@revamp/engine": "*" }
+}
