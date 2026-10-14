@@ -14,3 +14,17 @@ export const hydra = defineApp({
   },
   required: [disableSelfUpdate, sideBySideIdentity],
 });
+
+/** From the Heroic-2.22.3-linux-amd64.deb listing: no symlinks; icons from 16x16 to 1024x1024. */
+export const heroic = defineApp({
+  id: "heroic",
+  name: "Heroic",
+  release: { github: "Heroic-Games-Launcher/HeroicGamesLauncher", tag: "v{version}", asset: "Heroic-{version}-linux-amd64.deb" },
+  installDir: "opt/Heroic",
+  executable: "heroic",
+  desktopFile: "usr/share/applications/heroic.desktop",
+  versions: {
+    "2.22.3": { sha256: "f89eed7e0eb900fbe3051edfedbe7532db14328241cbf8c1fb766462dfc0b849" },
+  },
+  required: [disableSelfUpdate, sideBySideIdentity],
+});

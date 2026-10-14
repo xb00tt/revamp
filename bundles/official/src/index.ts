@@ -1,5 +1,6 @@
 import type { Manifest } from "@revamp/sdk";
-import { hydra } from "./apps.ts";
+import { heroic, hydra } from "./apps.ts";
+import { hideDealsLink } from "./heroic/hide-deals-link.ts";
 import { useBundledUi } from "./hydra/bundled-ui.ts";
 import { recentlyAddedSort } from "./hydra/recently-added-sort.ts";
 import { recentlyDownloadedSort } from "./hydra/recently-downloaded-sort.ts";
@@ -15,5 +16,5 @@ export const manifest: Manifest = {
   source: "github:xb00tt/revamp",
 };
 
-export const apps = [hydra];
-export const patches = [disableSelfUpdate, sideBySideIdentity, useBundledUi, recentlyAddedSort, recentlyDownloadedSort];
+export const apps = [hydra, heroic];
+export const patches = [disableSelfUpdate, sideBySideIdentity, useBundledUi, recentlyAddedSort, recentlyDownloadedSort, hideDealsLink];
