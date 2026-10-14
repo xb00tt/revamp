@@ -1,0 +1,25 @@
+{
+  "name": "revamp",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "engines": {
+    "node": ">=26"
+  },
+  "workspaces": [
+    "packages/*",
+    "bundles/*"
+  ],
+  "scripts": {
+    "test": "node --test \"packages/*/test/*.test.ts\" \"bundles/*/test/*.test.ts\"",
+    "test:integration": "npm run build -w @revamp/bundle-official && REVAMP_INTEGRATION=1 node --test \"test/integration/*.test.ts\"",
+    "typecheck": "tsc -p .",
+    "revamp": "node packages/cli/src/main.ts"
+  },
+  "devDependencies": {
+    "@electron/asar": "^4.3.1",
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
