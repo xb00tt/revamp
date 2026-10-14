@@ -249,7 +249,8 @@ export function describeBundle(b: BundleModule): BundleDescription {
       versions: structuredClone(a.versions),
       required: a.required.map((p) => p.name ?? "(internal)"),
     })),
-    patches: b.patches
+    // Required patches count even when a bundle forgets to list them in `patches`, as they do for planPatches.
+    patches: [...new Set<Patch>([...b.apps.flatMap((a) => a.required), ...b.patches])]
       .filter((p) => p.name)
       .map((p) => ({
         name: p.name!,
@@ -262,6 +263,10 @@ export function describeBundle(b: BundleModule): BundleDescription {
       })),
   };
 }
+
+/** The named patches that can apply to an app: its own plus the universal ones. */
+export const patchesForApp = (patches: PatchInfo[], appId: string): PatchInfo[] =>
+  patches.filter((p) => p.apps === null || p.apps.some((a) => a.app === appId));
 
 /** The JSON a parent sends to the sandboxed runner on stdin. */
 export type RunnerJob =
