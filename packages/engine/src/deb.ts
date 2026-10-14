@@ -60,11 +60,14 @@ export interface ExtractResult {
   hardlinks: number;
 }
 
+/** What kind of entry `select` is asked about. Hardlinks and symlinks are both "link". */
+export type EntryKind = "dir" | "file" | "link";
+
 /** Streams data.tar.* out of a .deb into outDir. Never executes anything and never writes outside outDir. */
 export async function extractDeb(
   debPath: string,
   outDir: string,
-  select: (archivePath: string) => string | null,
+  select: (archivePath: string, kind: EntryKind) => string | null,
 ): Promise<ExtractResult> {
   const member = readArMembers(debPath).find((m) => /^data\.tar(\.(gz|xz|zst))?$/.test(m.name));
   if (!member) throw new DebError(`${debPath} has no data.tar member`);
@@ -101,9 +104,9 @@ class TarExtractor {
   /** Output-relative paths of symlinks this archive created; nothing may be written below them. */
   private symlinks = new Set<string>();
   private readonly rootDir: string;
-  private readonly select: (archivePath: string) => string | null;
+  private readonly select: (archivePath: string, kind: EntryKind) => string | null;
 
-  constructor(rootDir: string, select: (archivePath: string) => string | null) {
+  constructor(rootDir: string, select: (archivePath: string, kind: EntryKind) => string | null) {
     this.rootDir = rootDir;
     this.select = select;
   }
@@ -170,7 +173,7 @@ class TarExtractor {
     const mode = parseOctal(h.subarray(100, 108)) & 0o777; // drops setuid/setgid/sticky
 
     if (type === "5") {
-      const rel = path === "" ? null : this.select(path);
+      const rel = path === "" ? null : this.select(path, "dir");
       if (rel !== null) {
         mkdirSync(this.dest(rel), { recursive: true, mode: 0o755 });
         this.result.dirs++;
@@ -183,7 +186,7 @@ class TarExtractor {
     }
     if (this.seen.has(path)) throw new DebError(`duplicate path in archive: ${path}`);
     this.seen.add(path);
-    const rel = this.select(path);
+    const rel = this.select(path, type === "0" || type === "7" ? "file" : "link");
     if (rel === null) {
       this.startBody({ kind: "skip" }, size);
       return;

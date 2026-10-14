@@ -143,3 +143,55 @@ test("an optional patch failure still installs and exits 2", async (t) => {
   assert.equal(r.installed, true);
   assert.equal(r.results.find((x) => x.name === "Broken")!.message, "nope");
 });
+
+
+const SHOUT =
+  'patches.push({ kind: "patch", name: "Shout", compatibleWith: [{ app }], default: false, ' +
+  'options: { times: { kind: "option", type: "number", title: "Times", default: 1 } }, ' +
+  "execute(ctx) { ctx.log(`shouting ${ctx.options.times}x`); } });";
+
+test("bad patch names and options fail before anything is downloaded", async (t) => {
+  const s = await setup({ extra: SHOUT });
+  t.after(s.close);
+  await assert.rejects(patchApp({ ...s.opts, enable: ["Nope"] }), /Demo has no patch "Nope" \(see: revamp patches demo\)/);
+  await assert.rejects(patchApp({ ...s.opts, options: ["Shout:times=lots"] }), /value must be a number/);
+  await assert.rejects(patchApp({ ...s.opts, options: ["Shout:loud=true"] }), /"Shout" has no option "loud" \(it has: times\)/);
+  await assert.rejects(patchApp({ ...s.opts, options: ["nonsense"] }), /must look like "<patch>:<key>=<value>"/);
+  assert.equal(s.hits(), 0);
+});
+
+test("--option values reach the patch, and the cleaned-up selection is saved", async (t) => {
+  const s = await setup({ extra: SHOUT });
+  t.after(s.close);
+  const file = join(s.paths.config, "apps/demo.json");
+  mkdirSync(join(s.paths.config, "apps"), { recursive: true });
+  writeFileSync(file, JSON.stringify({ enable: ["Removed long ago"], disable: [], options: {} }));
+  const r = await patchApp({ ...s.opts, enable: ["Shout"], options: ["Shout:times=3"] });
+  assert.equal(r.exitCode, 0);
+  assert.deepEqual(r.logs, ["[Shout] shouting 3x"]);
+  assert.match(r.warnings[0], /Dropped "Removed long ago" from your saved choices for Demo: this bundle no longer has that patch\./);
+  assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { enable: ["Shout"], disable: [], options: { Shout: { times: 3 } } });
+});
+
+test("the app's executable must be a safe relative path and a file in the .deb", async (t) => {
+  const s = await setup({ extra: 'app.executable = "../../bin/sh";' });
+  t.after(s.close);
+  await assert.rejects(patchApp(s.opts), /unsafe executable "\.\.\/\.\.\/bin\/sh"/);
+  assert.equal(s.hits(), 0);
+  s.writeBundle({ extra: 'app.executable = "resources";' });
+  await assert.rejects(patchApp(s.opts), /the \.deb has no executable file opt\/Demo\/resources/);
+  assert.equal(existsSync(join(appRoot(s), "1.0.0")), false);
+  assert.deepEqual(readdirSync(appRoot(s)), []);
+});
+
+test("desktop file and icon links are never moved into .revamp-meta", async (t) => {
+  // Valid where the .deb puts it (it climbs to the archive root), but 6 levels up from .revamp-meta/icons/512/ is outside.
+  const deep = tarEntry("./usr/share/icons/hicolor/512x512/apps/demo.png", "", { type: "2", linkname: "../../../../../../opt/Demo/demo" });
+  // Three levels up from .revamp-meta/icons/1024/ is the staging root, so moved there it would make the executable the icon.
+  const shallow = tarEntry("./usr/share/icons/hicolor/1024x1024/apps/demo.png", "", { type: "2", linkname: "../../../demo" });
+  const s = await setup({}, [deep, shallow]);
+  t.after(s.close);
+  const r = await patchApp(s.opts);
+  assert.equal(r.exitCode, 0);
+  assert.equal(readFileSync(join(appRoot(s), "1.0.0/revamp-icon.png"), "utf8"), "big-png");
+});

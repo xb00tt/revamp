@@ -39,3 +39,9 @@ export function assertSafeName(kind: string, value: string): string {
   if (!SAFE_NAME.test(value) || value.includes("..")) throw new Error(`unsafe ${kind} "${value}"`);
   return value;
 }
+
+/** Guards bundle-supplied relative paths, such as an app's executable: safe names joined by "/". */
+export function assertSafeRelativePath(kind: string, value: string): string {
+  if (!value.split("/").every((part) => SAFE_NAME.test(part) && !part.includes(".."))) throw new Error(`unsafe ${kind} "${value}"`);
+  return value;
+}
