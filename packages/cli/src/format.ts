@@ -1,4 +1,4 @@
-import type { InstalledApp, PatchAppResult, PatchStatus } from "@revamp/engine";
+import type { InstalledApp, PatchAppResult, PatchListing, PatchStatus } from "@revamp/engine";
 
 const MARK: Record<PatchStatus, string> = { applied: "✓", failed: "✗", skipped: "–", incompatible: " ", disabled: " " };
 
@@ -35,6 +35,24 @@ export function formatInstalls(apps: InstalledApp[]): string {
       const patches = v.receipt.patches.filter((p) => p.status === "applied" && !p.internal && !p.required).map((p) => p.name);
       const tags = `${v.version === a.current ? " (current)" : ""}${v.receipt.release.untested ? " (untested)" : ""}`;
       lines.push(`${a.appId} ${v.version}${tags}  installed ${when}  ${patches.join(", ")}`.trimEnd());
+    }
+  }
+  return lines.join("\n");
+}
+
+export function formatPatchList(l: PatchListing): string {
+  const lines = [
+    `${l.app.name} ${l.version}${l.listed ? "" : " (not in this bundle: patching it needs --force)"}, from bundle "${l.bundle.name}" ${l.bundle.version}`,
+  ];
+  for (const p of l.patches) {
+    const versions = (p.apps ?? []).filter((a) => a.app === l.app.id).flatMap((a) => a.versions ?? []);
+    const state = p.required ? "required" : !p.compatible ? `only for ${versions.join(", ")}` : p.default ? "on by default" : "off by default";
+    lines.push(`  ${p.name}  [${state}]`);
+    if (p.description) lines.push(`      ${p.description}`);
+    for (const [key, o] of Object.entries(p.options)) {
+      const preset = o.default === null ? "" : `, default ${JSON.stringify(o.default)}`;
+      lines.push(`      --option "${p.name}:${key}=<${o.type}>"  ${o.title}${preset}`);
+      if (o.description) lines.push(`          ${o.description}`);
     }
   }
   return lines.join("\n");

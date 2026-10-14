@@ -1,14 +1,16 @@
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { listInstalls, patchApp, revampPaths, rollback, uninstall } from "@revamp/engine";
-import { formatInstalls, formatPatchResult } from "./format.ts";
+import { listInstalls, listPatches, patchApp, revampPaths, rollback, uninstall } from "@revamp/engine";
+import { formatInstalls, formatPatchList, formatPatchResult } from "./format.ts";
 
 // M1 runs from the repo; M4 replaces this with bundle sources.
 const DEFAULT_BUNDLE = fileURLToPath(new URL("../../../bundles/official/dist/official.mjs", import.meta.url));
 
 const USAGE = `Usage:
-  revamp patch <app> [--version <v>] [--force] [--enable <patch>]... [--disable <patch>]... [--bundle <file>] [--dry-run]
+  revamp patch <app> [--version <v>] [--force] [--enable <patch>]... [--disable <patch>]...
+               [--option "<patch>:<key>=<value>"]... [--bundle <file>] [--dry-run]
+  revamp patches <app> [--version <v>] [--bundle <file>]
   revamp list
   revamp rollback <app>
   revamp uninstall <app> [--yes]`;
@@ -22,6 +24,7 @@ async function main(argv: string[]): Promise<number> {
       force: { type: "boolean" },
       enable: { type: "string", multiple: true },
       disable: { type: "string", multiple: true },
+      option: { type: "string", multiple: true },
       bundle: { type: "string" },
       "dry-run": { type: "boolean" },
       yes: { type: "boolean" },
@@ -51,6 +54,7 @@ async function main(argv: string[]): Promise<number> {
         force: values.force,
         enable: values.enable,
         disable: values.disable,
+        options: values.option,
         dryRun: values["dry-run"],
         paths,
         log: (line) => console.error(line),
@@ -58,6 +62,9 @@ async function main(argv: string[]): Promise<number> {
       console.log(formatPatchResult(result));
       return result.exitCode;
     }
+    case "patches":
+      console.log(formatPatchList(await listPatches(values.bundle ?? DEFAULT_BUNDLE, needApp(), values.version)));
+      return 0;
     case "list":
       console.log(formatInstalls(listInstalls(paths)));
       return 0;

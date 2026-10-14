@@ -7,7 +7,7 @@ import { parseDesktopEntry } from "./desktop.ts";
 import { downloadVerified, fileSha256, releaseDigest } from "./download.ts";
 import type { PatchResult } from "./graph.ts";
 import { environmentWarnings, ICON_FILE, installStaged, lockApp, newStaging } from "./install.ts";
-import { ASAR_PATH, patchesForApp, type AppInfo, type BundleDescription, type SandboxPatchOutput } from "./job.ts";
+import { ASAR_PATH, patchesForApp, type AppInfo, type BundleDescription, type PatchInfo, type SandboxPatchOutput } from "./job.ts";
 import { assertSafeName, assertSafeRelativePath, releasePath, revampPaths, type Paths } from "./paths.ts";
 import { runSandboxed } from "./sandbox.ts";
 import { compareVersions, ENGINE_VERSION } from "./version.ts";
@@ -174,6 +174,30 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
   } finally {
     unlock();
   }
+}
+
+export interface PatchListing {
+  bundle: BundleDescription["manifest"];
+  app: AppInfo;
+  version: string;
+  /** False when the bundle doesn't list the version: patching it needs --force. */
+  listed: boolean;
+  patches: Array<PatchInfo & { required: boolean; compatible: boolean }>;
+}
+
+/** What `revamp patches <app>` shows: every patch that can apply to the app, judged for one version. */
+export async function listPatches(bundlePath: string, appId: string, version?: string): Promise<PatchListing> {
+  const desc = await describe(bundlePath);
+  const app = findApp(desc, appId);
+  const v = version ?? newestStable(app.versions);
+  if (!v) throw new Error(`bundle "${desc.manifest.name}" has no stable ${app.name} version; pass --version`);
+  const required = new Set(app.required);
+  const patches = patchesForApp(desc.patches, app.id).map((p) => ({
+    ...p,
+    required: required.has(p.name),
+    compatible: p.apps === null || p.apps.some((a) => a.app === app.id && (a.versions === null || a.versions.includes(v))),
+  }));
+  return { bundle: desc.manifest, app, version: v, listed: Object.hasOwn(app.versions, v), patches };
 }
 
 /** installDir/** goes to the staging root; the stock desktop file and hicolor PNG icons (regular files only) go to .revamp-meta/. */
