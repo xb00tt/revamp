@@ -111,6 +111,20 @@ test("the receipt write never follows a symlink planted in the app tree", () => 
   assert.equal(lstatSync(join(root(p), "1.0.0/revamp.json")).isFile(), true);
 });
 
+test("a bad menu entry fails the job before the existing install is touched", () => {
+  const p = newPaths();
+  install(p, "1.0.0", "2026-10-14T10:00:00.000Z", "old build");
+  const staging = newStaging(p, "demo");
+  writeFileSync(join(staging, "demo"), "new build");
+  const badEntries: Record<string, string>[] = [{ Bad_Key: "x" }, { Name: 42 as unknown as string }];
+  for (const desktopEntry of badEntries) {
+    const input = { paths: p, appId: "demo", version: "1.0.0", executable: "demo", staging, desktopEntry };
+    assert.throws(() => installStaged({ ...input, receipt: receipt("1.0.0", "2026-10-14T11:00:00.000Z") }), /desktop entry/);
+  }
+  assert.equal(readFileSync(join(root(p), "1.0.0/demo"), "utf8"), "old build");
+  assert.equal(readlinkSync(join(root(p), "current")), "1.0.0");
+});
+
 test("refuses install paths a desktop Exec line can't hold", () => {
   const p = newPaths(join(tmp(), "we$ird"));
   assert.throws(() => install(p, "1.0.0", "2026-10-14T10:00:00.000Z"), /can't hold/);

@@ -35,6 +35,41 @@ export function newStaging(paths: Paths, appId: string): string {
   return mkdtempSync(join(root, ".staging-"));
 }
 
+/**
+ * Serializes jobs for one app and clears what interrupted ones left behind (a staging tree is ~700 MB).
+ * The lock file holds its owner's pid; a lock whose process is gone is taken over. Returns the unlock function.
+ */
+export function lockApp(paths: Paths, appId: string): () => void {
+  const root = appDir(paths, appId);
+  mkdirSync(root, { recursive: true });
+  const lock = join(root, ".lock");
+  for (;;) {
+    try {
+      writeFileSync(lock, String(process.pid), { flag: "wx" });
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      // ponytail: pid-file lock; a reused pid keeps a stale lock alive until that process exits.
+      const pid = Number.parseInt(readFileSync(lock, "utf8"), 10);
+      if (Number.isInteger(pid) && pid > 0 && isAlive(pid)) throw new Error(`another Revamp job for ${appId} is running (pid ${pid})`);
+      rmSync(lock, { force: true });
+    }
+  }
+  for (const name of readdirSync(root)) {
+    if (/^\.(staging|replaced|current)-/.test(name)) rmSync(join(root, name), { recursive: true, force: true });
+  }
+  return () => rmSync(lock, { force: true });
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 export interface InstallInput {
   paths: Paths;
   appId: string;
@@ -50,6 +85,8 @@ export function installStaged(i: InstallInput): string {
   const root = appDir(i.paths, i.appId);
   const exe = join(root, "current", i.executable);
   if (/["`$\\]/.test(exe)) throw new Error(`a .desktop Exec line can't hold the install path ${exe}`);
+  // Build (and so validate) the menu entry first: a bad one must fail the job before anything is moved.
+  const desktopText = desktopFileText(i.desktopEntry, exe, join(root, "current", ICON_FILE), existsSync(join(i.staging, ICON_FILE)));
   const dest = join(root, assertSafeName("version", i.version));
   // The staging tree comes from the .deb: replace anything named revamp.json, never write through it.
   const receiptPath = join(i.staging, "revamp.json");
@@ -63,7 +100,7 @@ export function installStaged(i: InstallInput): string {
   renameSync(i.staging, dest);
   if (aside) rmSync(aside, { recursive: true, force: true });
   pointCurrent(root, i.version);
-  writeDesktopFile(i.paths, i.appId, exe, i.desktopEntry);
+  writeDesktopFile(i.paths, i.appId, desktopText);
   pruneVersions(root);
   return dest;
 }
@@ -117,15 +154,18 @@ export function pruneVersions(root: string): string[] {
 export const desktopFilePath = (paths: Paths, appId: string) =>
   join(paths.applications, `revamp-${assertSafeName("app id", appId)}.desktop`);
 
-function writeDesktopFile(paths: Paths, appId: string, exe: string, entry: Record<string, string>): void {
-  const current = join(appDir(paths, appId), "current");
-  const fieldCode = /%[fFuU]/.exec(entry.Exec ?? "")?.[0];
+function desktopFileText(entry: Record<string, string>, exe: string, icon: string, hasIcon: boolean): string {
+  const fieldCode = /%[fFuU]/.exec(String(entry.Exec ?? ""))?.[0];
   const final: Record<string, string> = { ...entry, Exec: `"${exe}"${fieldCode ? ` ${fieldCode}` : ""}` };
   delete final.TryExec;
-  if (existsSync(join(current, ICON_FILE))) final.Icon = join(current, ICON_FILE);
+  if (hasIcon) final.Icon = icon;
+  return serializeDesktopEntry(final);
+}
+
+function writeDesktopFile(paths: Paths, appId: string, text: string): void {
   mkdirSync(paths.applications, { recursive: true });
   const file = desktopFilePath(paths, appId);
-  writeFileSync(`${file}.tmp`, serializeDesktopEntry(final));
+  writeFileSync(`${file}.tmp`, text);
   renameSync(`${file}.tmp`, file);
   refreshDesktopDatabase(paths);
 }

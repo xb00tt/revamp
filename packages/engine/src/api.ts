@@ -6,7 +6,7 @@ import { extractDeb } from "./deb.ts";
 import { parseDesktopEntry } from "./desktop.ts";
 import { downloadVerified, fileSha256 } from "./download.ts";
 import type { PatchResult } from "./graph.ts";
-import { environmentWarnings, ICON_FILE, installStaged, newStaging } from "./install.ts";
+import { environmentWarnings, ICON_FILE, installStaged, lockApp, newStaging } from "./install.ts";
 import { ASAR_PATH, type AppInfo, type BundleDescription, type SandboxPatchOutput } from "./job.ts";
 import { assertSafeName, releasePath, revampPaths, type Paths } from "./paths.ts";
 import { runSandboxed } from "./sandbox.ts";
@@ -79,60 +79,66 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
   const tag = fill(app.release.tag, version);
   const selection = mergeSelection(loadSelection(paths, app.id), { enable: o.enable, disable: o.disable });
 
-  const debPath = releasePath(paths, app.id, version, asset);
-  log(`Downloading ${asset}…`);
-  const url = `${o.releaseBaseUrl ?? "https://github.com"}/${app.release.github}/releases/download/${tag}/${asset}`;
-  const how = await downloadVerified({ url, dest: debPath, sha256: info.sha256, fetch: o.fetch });
-  if (how === "replaced") log("The cached download had the wrong SHA-256, so it was downloaded again.");
-
-  const staging = newStaging(paths, app.id);
+  // One job per app at a time; this also sweeps staging dirs that interrupted jobs left behind.
+  const unlock = lockApp(paths, app.id);
   try {
-    log("Extracting…");
-    await extractDeb(debPath, staging, installSelector(app));
-    const stockDesktop = takeMeta(staging, app);
+    const debPath = releasePath(paths, app.id, version, asset);
+    log(`Downloading ${asset}…`);
+    const url = `${o.releaseBaseUrl ?? "https://github.com"}/${app.release.github}/releases/download/${tag}/${asset}`;
+    const how = await downloadVerified({ url, dest: debPath, sha256: info.sha256, fetch: o.fetch });
+    if (how === "replaced") log("The cached download had the wrong SHA-256, so it was downloaded again.");
 
-    log("Patching…");
-    const outDir = join(staging, ".revamp-out");
-    mkdirSync(outDir);
-    const job = await runSandboxed<SandboxPatchOutput>(
-      { mode: "patch", bundle: bundlePath, staging, outDir, appId: app.id, version, selection, force: o.force ?? false, stockDesktop },
-      { read: [staging, bundlePath], write: [outDir] },
-    );
-    const base = { appId: app.id, appName: app.name, version, results: job.results, logs: job.logs, dryRun: o.dryRun ?? false, warnings: [] };
-    if (job.aborted) return { ...base, installed: false, aborted: job.aborted, exitCode: 1 };
-    const exitCode = job.results.some((r) => r.status === "failed" || r.status === "skipped") ? 2 : 0;
-    if (o.dryRun) return { ...base, installed: false, exitCode };
+    const staging = newStaging(paths, app.id);
+    try {
+      log("Extracting…");
+      await extractDeb(debPath, staging, installSelector(app));
+      const stockDesktop = takeMeta(staging, app);
 
-    log("Repacking…");
-    const asarPath = join(staging, ASAR_PATH);
-    const changes = new Map(job.files.map((f) => [f, readFileSync(join(outDir, "files", ...assertAsarPath(f).split("/")))]));
-    rmSync(`${asarPath}.new`, { force: true }); // the .deb could have planted a symlink here
-    writeAsar(readAsar(asarPath), `${asarPath}.new`, changes);
-    renameSync(`${asarPath}.new`, asarPath);
-    rmSync(outDir, { recursive: true, force: true });
+      log("Patching…");
+      const outDir = join(staging, ".revamp-out");
+      mkdirSync(outDir);
+      const job = await runSandboxed<SandboxPatchOutput>(
+        { mode: "patch", bundle: bundlePath, staging, outDir, appId: app.id, version, selection, force: o.force ?? false, stockDesktop },
+        { read: [staging, bundlePath], write: [outDir] },
+      );
+      const base = { appId: app.id, appName: app.name, version, results: job.results, logs: job.logs, dryRun: o.dryRun ?? false, warnings: [] };
+      if (job.aborted) return { ...base, installed: false, aborted: job.aborted, exitCode: 1 };
+      const exitCode = job.results.some((r) => r.status === "failed" || r.status === "skipped") ? 2 : 0;
+      if (o.dryRun) return { ...base, installed: false, exitCode };
 
-    log("Installing…");
-    const installDir = installStaged({
-      paths,
-      appId: app.id,
-      version,
-      executable: app.executable,
-      staging,
-      desktopEntry: job.desktopEntry,
-      receipt: {
-        app: app.id,
+      log("Repacking…");
+      const asarPath = join(staging, ASAR_PATH);
+      const changes = new Map(job.files.map((f) => [f, readFileSync(join(outDir, "files", ...assertAsarPath(f).split("/")))]));
+      rmSync(`${asarPath}.new`, { force: true }); // the .deb could have planted a symlink here
+      writeAsar(readAsar(asarPath), `${asarPath}.new`, changes);
+      renameSync(`${asarPath}.new`, asarPath);
+      rmSync(outDir, { recursive: true, force: true });
+
+      log("Installing…");
+      const installDir = installStaged({
+        paths,
+        appId: app.id,
         version,
-        release: { asset, sha256: info.sha256 },
-        bundle: { name: bundleName, version: desc.manifest.version, sha256: await fileSha256(bundlePath) },
-        patches: job.results,
-        selection,
-        installedAt: new Date().toISOString(),
-      },
-    });
-    saveSelection(paths, app.id, selection);
-    return { ...base, installed: true, installDir, exitCode, warnings: environmentWarnings(app.name) };
+        executable: app.executable,
+        staging,
+        desktopEntry: job.desktopEntry,
+        receipt: {
+          app: app.id,
+          version,
+          release: { asset, sha256: info.sha256 },
+          bundle: { name: bundleName, version: desc.manifest.version, sha256: await fileSha256(bundlePath) },
+          patches: job.results,
+          selection,
+          installedAt: new Date().toISOString(),
+        },
+      });
+      saveSelection(paths, app.id, selection);
+      return { ...base, installed: true, installDir, exitCode, warnings: environmentWarnings(app.name) };
+    } finally {
+      rmSync(staging, { recursive: true, force: true }); // no-op after a successful install renamed it
+    }
   } finally {
-    rmSync(staging, { recursive: true, force: true }); // no-op after a successful install renamed it
+    unlock();
   }
 }
 

@@ -21,6 +21,7 @@ export function serializeDesktopEntry(entry: Record<string, string>): string {
   const lines = ["[Desktop Entry]"];
   for (const [key, value] of Object.entries(entry)) {
     if (!KEY.test(key)) throw new Error(`invalid desktop entry key ${JSON.stringify(key)}`);
+    if (typeof value !== "string") throw new Error(`desktop entry value for ${key} must be a string`);
     lines.push(`${key}=${value.replace(/[\r\n]+/g, " ")}`);
   }
   return lines.join("\n") + "\n";

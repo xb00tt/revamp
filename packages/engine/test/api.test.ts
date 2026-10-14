@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractFile } from "@electron/asar";
@@ -79,6 +80,19 @@ test("symlinks planted in the .deb never redirect Revamp's own writes", async (t
   assert.equal(readFileSync(join(dir, "demo"), "utf8"), "#!/bin/sh\necho demo\n");
   assert.equal(readFileSync(join(dir, "revamp-icon.png"), "utf8"), "big-png");
   assert.equal(extractFile(join(dir, "resources/app.asar"), "out/main.js").toString(), 'console.log("goodbye");\n');
+});
+
+test("an interrupted job's leftovers are swept, and a running job blocks a second one", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  const root = appRoot(s);
+  mkdirSync(join(root, ".staging-interrupted/resources"), { recursive: true });
+  writeFileSync(join(root, ".staging-interrupted/resources/app.asar"), "700 MB in real life");
+  writeFileSync(join(root, ".lock"), String(spawnSync(process.execPath, ["-e", ""]).pid)); // a pid that has exited
+  assert.equal((await patchApp(s.opts)).exitCode, 0);
+  assert.deepEqual(readdirSync(root).filter((n) => n.startsWith(".")), []);
+  writeFileSync(join(root, ".lock"), String(process.pid));
+  await assert.rejects(patchApp(s.opts), /another Revamp job for demo is running/);
 });
 
 test("a dry run reports results and installs nothing", async (t) => {
