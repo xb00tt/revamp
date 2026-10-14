@@ -52,7 +52,7 @@ export async function writeDemoApp(dir: string): Promise<void> {
 }
 
 /** A .deb shaped like Hydra's: the app under opt/Demo, a desktop file and two icon sizes. */
-export async function demoDeb(): Promise<Buffer> {
+export async function demoDeb(extra: Buffer[] = []): Promise<Buffer> {
   return debFrom(
     tarArchive([
       tarEntry("./opt/Demo/", "", { type: "5", mode: 0o755 }),
@@ -65,6 +65,7 @@ export async function demoDeb(): Promise<Buffer> {
       ),
       tarEntry("./usr/share/icons/hicolor/64x64/apps/demo.png", "small-png"),
       tarEntry("./usr/share/icons/hicolor/256x256/apps/demo.png", "big-png"),
+      ...extra,
     ]),
     "gz",
   );

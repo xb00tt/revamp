@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseDesktopEntry } from "../src/desktop.ts";
@@ -99,6 +99,16 @@ test("listInstalls and uninstall", () => {
   assert.equal(existsSync(join(p.applications, "revamp-demo.desktop")), false);
   assert.deepEqual(listInstalls(p), []);
   assert.throws(() => uninstall(p, "demo"), /not installed/);
+});
+
+test("the receipt write never follows a symlink planted in the app tree", () => {
+  const p = newPaths();
+  const staging = newStaging(p, "demo");
+  writeFileSync(join(staging, "demo"), "binary");
+  symlinkSync("demo", join(staging, "revamp.json"));
+  installStaged({ paths: p, appId: "demo", version: "1.0.0", executable: "demo", staging, receipt: receipt("1.0.0", "2026-10-14T10:00:00.000Z"), desktopEntry: { Name: "Demo" } });
+  assert.equal(readFileSync(join(root(p), "1.0.0/demo"), "utf8"), "binary");
+  assert.equal(lstatSync(join(root(p), "1.0.0/revamp.json")).isFile(), true);
 });
 
 test("refuses install paths a desktop Exec line can't hold", () => {

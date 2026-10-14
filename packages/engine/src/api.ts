@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { assertAsarPath, readAsar, writeAsar } from "./asar.ts";
 import { loadSelection, mergeSelection, saveSelection } from "./config.ts";
@@ -106,6 +106,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
     log("Repacking…");
     const asarPath = join(staging, ASAR_PATH);
     const changes = new Map(job.files.map((f) => [f, readFileSync(join(outDir, "files", ...assertAsarPath(f).split("/")))]));
+    rmSync(`${asarPath}.new`, { force: true }); // the .deb could have planted a symlink here
     writeAsar(readAsar(asarPath), `${asarPath}.new`, changes);
     renameSync(`${asarPath}.new`, asarPath);
     rmSync(outDir, { recursive: true, force: true });
@@ -158,7 +159,10 @@ function takeMeta(staging: string, app: AppInfo): Record<string, string> {
     if (/^[\w.+-]+$/.test(entry.Icon ?? "") && existsSync(icons)) {
       const sizes = readdirSync(icons).map(Number).sort((a, b) => b - a);
       const size = sizes.find((s) => existsSync(join(icons, String(s), `${entry.Icon}.png`)));
-      if (size !== undefined) copyFileSync(join(icons, String(size), `${entry.Icon}.png`), join(staging, ICON_FILE));
+      if (size !== undefined) {
+        rmSync(join(staging, ICON_FILE), { force: true }); // never copy through a symlink the .deb planted
+        copyFileSync(join(icons, String(size), `${entry.Icon}.png`), join(staging, ICON_FILE), constants.COPYFILE_EXCL);
+      }
     }
     return entry;
   } finally {

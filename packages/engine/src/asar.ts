@@ -145,7 +145,7 @@ export function writeAsar(a: AsarArchive, outPath: string, changes: ReadonlyMap<
     prefix.writeUInt32LE(padded + 8, 4);
     prefix.writeUInt32LE(padded + 4, 8);
     prefix.writeUInt32LE(json.length, 12);
-    const out = openSync(outPath, "w");
+    const out = openSync(outPath, "wx"); // never write through an existing file or symlink
     try {
       writeAll(out, prefix);
       writeAll(out, json);

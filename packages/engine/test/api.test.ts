@@ -10,10 +10,11 @@ import { extractFile } from "@electron/asar";
 import { patchApp, type PatchAppOptions } from "../src/api.ts";
 import { parseDesktopEntry } from "../src/desktop.ts";
 import { revampPaths } from "../src/paths.ts";
+import { tarEntry } from "./helpers/archives.ts";
 import { demoDeb, writeDemoBundle } from "./helpers/demo.ts";
 
-async function setup(bundleOptions: { extra?: string; minEngine?: string } = {}) {
-  const deb = await demoDeb();
+async function setup(bundleOptions: { extra?: string; minEngine?: string } = {}, debExtra: Buffer[] = []) {
+  const deb = await demoDeb(debExtra);
   const sha256 = createHash("sha256").update(deb).digest("hex");
   let hits = 0;
   const server = createServer((req, res) => {
@@ -63,6 +64,21 @@ test("downloads, patches, repacks and installs; the second run reuses the downlo
   const before = s.hits();
   assert.equal((await patchApp(s.opts)).exitCode, 0);
   assert.equal(s.hits(), before);
+});
+
+test("symlinks planted in the .deb never redirect Revamp's own writes", async (t) => {
+  const planted = [
+    tarEntry("./opt/Demo/revamp-icon.png", "", { type: "2", linkname: "demo" }),
+    tarEntry("./opt/Demo/resources/app.asar.new", "", { type: "2", linkname: "../demo" }),
+  ];
+  const s = await setup({}, planted);
+  t.after(s.close);
+  const r = await patchApp(s.opts);
+  assert.equal(r.exitCode, 0);
+  const dir = join(appRoot(s), "1.0.0");
+  assert.equal(readFileSync(join(dir, "demo"), "utf8"), "#!/bin/sh\necho demo\n");
+  assert.equal(readFileSync(join(dir, "revamp-icon.png"), "utf8"), "big-png");
+  assert.equal(extractFile(join(dir, "resources/app.asar"), "out/main.js").toString(), 'console.log("goodbye");\n');
 });
 
 test("a dry run reports results and installs nothing", async (t) => {

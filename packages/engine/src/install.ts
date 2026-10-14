@@ -51,7 +51,10 @@ export function installStaged(i: InstallInput): string {
   const exe = join(root, "current", i.executable);
   if (/["`$\\]/.test(exe)) throw new Error(`a .desktop Exec line can't hold the install path ${exe}`);
   const dest = join(root, assertSafeName("version", i.version));
-  writeFileSync(join(i.staging, "revamp.json"), JSON.stringify(i.receipt, null, 2) + "\n");
+  // The staging tree comes from the .deb: replace anything named revamp.json, never write through it.
+  const receiptPath = join(i.staging, "revamp.json");
+  rmSync(receiptPath, { force: true });
+  writeFileSync(receiptPath, JSON.stringify(i.receipt, null, 2) + "\n", { flag: "wx" });
   let aside: string | undefined;
   if (existsSync(dest)) {
     aside = join(root, `.replaced-${i.version}-${process.pid}`);
