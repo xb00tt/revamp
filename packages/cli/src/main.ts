@@ -1,0 +1,93 @@
+import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+import { listInstalls, patchApp, revampPaths, rollback, uninstall } from "@revamp/engine";
+import { formatInstalls, formatPatchResult } from "./format.ts";
+
+// M1 runs from the repo; M4 replaces this with bundle sources.
+const DEFAULT_BUNDLE = fileURLToPath(new URL("../../../bundles/official/dist/official.mjs", import.meta.url));
+
+const USAGE = `Usage:
+  revamp patch <app> [--version <v>] [--force] [--enable <patch>]... [--disable <patch>]... [--bundle <file>] [--dry-run]
+  revamp list
+  revamp rollback <app>
+  revamp uninstall <app> [--yes]`;
+
+async function main(argv: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      version: { type: "string" },
+      force: { type: "boolean" },
+      enable: { type: "string", multiple: true },
+      disable: { type: "string", multiple: true },
+      bundle: { type: "string" },
+      "dry-run": { type: "boolean" },
+      yes: { type: "boolean" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+  const [command, appId] = positionals;
+  if (values.help) {
+    console.log(USAGE);
+    return 0;
+  }
+  if (!command) {
+    console.error(USAGE);
+    return 1;
+  }
+  const paths = revampPaths();
+  const needApp = () => {
+    if (!appId) throw new Error(`"${command}" needs an app, e.g. revamp ${command} hydra`);
+    return appId;
+  };
+  switch (command) {
+    case "patch": {
+      const result = await patchApp({
+        appId: needApp(),
+        bundlePath: values.bundle ?? DEFAULT_BUNDLE,
+        version: values.version,
+        force: values.force,
+        enable: values.enable,
+        disable: values.disable,
+        dryRun: values["dry-run"],
+        paths,
+        log: (line) => console.error(line),
+      });
+      console.log(formatPatchResult(result));
+      return result.exitCode;
+    }
+    case "list":
+      console.log(formatInstalls(listInstalls(paths)));
+      return 0;
+    case "rollback":
+      console.log(`${needApp()}: now using ${rollback(paths, needApp())}`);
+      return 0;
+    case "uninstall": {
+      const id = needApp();
+      if (!values.yes) {
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const answer = await rl.question(`Remove Revamped ${id} (all versions, its menu entry and saved choices)? [y/N] `);
+        rl.close();
+        if (!/^y(es)?$/i.test(answer.trim())) return 1;
+      }
+      uninstall(paths, id);
+      console.log(`Removed Revamped ${id}.`);
+      return 0;
+    }
+    default:
+      console.error(`Unknown command "${command}".\n${USAGE}`);
+      return 1;
+  }
+}
+
+main(process.argv.slice(2)).then(
+  (code) => {
+    process.exitCode = code;
+  },
+  (e) => {
+    console.error(`revamp: ${e instanceof Error ? e.message : String(e)}`);
+    process.exitCode = 1;
+  },
+);

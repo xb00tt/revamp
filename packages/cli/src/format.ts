@@ -1,0 +1,40 @@
+import type { InstalledApp, PatchAppResult, PatchStatus } from "@revamp/engine";
+
+const MARK: Record<PatchStatus, string> = { applied: "✓", failed: "✗", skipped: "–", incompatible: " ", disabled: " " };
+
+export function formatPatchResult(r: PatchAppResult): string {
+  const shown = r.results.filter((x) => !x.internal || x.status === "failed");
+  const ran = shown.filter((x) => x.status !== "disabled" && x.status !== "incompatible");
+  const applied = ran.filter((x) => x.status === "applied").length;
+  const outcome = r.aborted
+    ? `nothing installed: ${r.aborted}`
+    : r.installed
+      ? `installed to ${r.installDir}`
+      : r.dryRun
+        ? "dry run, nothing installed"
+        : "not installed";
+  const lines = [`${r.appName} ${r.version}: ${applied}/${ran.length} patches apply (${outcome})`];
+  for (const x of shown) {
+    const tag = x.status === "disabled" || x.status === "incompatible" ? ` [${x.status}]` : "";
+    lines.push(`  ${MARK[x.status]} ${x.name}${x.required ? " (required)" : ""}${tag}`);
+    if (x.message && x.status !== "applied" && x.status !== "incompatible") {
+      lines.push(...x.message.split("\n").map((l) => `      ${l}`));
+    }
+  }
+  for (const l of r.logs) lines.push(`  ${l}`);
+  for (const w of r.warnings) lines.push(`Note: ${w}`);
+  return lines.join("\n");
+}
+
+export function formatInstalls(apps: InstalledApp[]): string {
+  if (apps.length === 0) return "No Revamped apps installed.";
+  const lines: string[] = [];
+  for (const a of apps) {
+    for (const v of a.versions) {
+      const when = v.receipt.installedAt.slice(0, 16).replace("T", " ");
+      const patches = v.receipt.patches.filter((p) => p.status === "applied" && !p.internal && !p.required).map((p) => p.name);
+      lines.push(`${a.appId} ${v.version}${v.version === a.current ? " (current)" : ""}  installed ${when}  ${patches.join(", ")}`.trimEnd());
+    }
+  }
+  return lines.join("\n");
+}
