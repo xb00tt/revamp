@@ -34,9 +34,20 @@ test(
         ["Use the bundled UI", "applied"],
         ["Recently added sort", "applied"],
         ["Recently downloaded sort", "applied"],
+        ["More like this ranking", "applied"],
       ],
     );
-    assert.deepEqual(r.results.filter((x) => x.internal).map((x) => [x.name, x.status]), [["(internal patch #4: Hydra locales)", "applied"]]);
+    assert.deepEqual(
+      r.results.filter((x) => x.internal).map((x) => [x.name, x.status]),
+      [
+        ["(internal patch #4: Hydra locales)", "applied"],
+        ["(internal patch #7: Hydra extension loader)", "applied"],
+        ["(internal patch #8: registry: game page)", "applied"],
+        ["(internal patch #9: registry: game data)", "applied"],
+        ["(internal patch #10: registry: library)", "applied"],
+        ["(internal patch #11: registry: Steam tags)", "applied"],
+      ],
+    );
     if (cached) assert.ok(seconds < 60, `patching took ${seconds.toFixed(1)} s; expected seconds, not minutes`);
 
     const apps = join(paths.data, "apps/hydra");
@@ -68,6 +79,15 @@ test(
     ]) {
       assert.equal(patched[0].split(strings).length, 2, strings);
     }
+
+    // More like this: the extension ships next to the renderer and loads first; the renderer registers its
+    // internals once, just before the root render, and routes the stock section through mount().
+    assert.ok(extractFile(asar, "out/renderer/assets/revamp-hydra.js").toString().includes('mounts["hydra.similarGames"]'));
+    const html = extractFile(asar, "out/renderer/index.html").toString();
+    assert.ok(html.indexOf("./assets/revamp-hydra.js") < html.indexOf('<script type="module" crossorigin src="./assets/index-'));
+    assert.equal(patched[0].split("Object.assign((globalThis.__revamp ??= { registry: {}, mounts: {} }).registry, {").length, 5);
+    assert.ok(/registry, \{ [^\n]* \}\);\nReactDOM\$1\.createRoot\(document\.getElementById\("root"\)\)/.test(patched[0]));
+    assert.equal(patched[0].split('SimilarGames = globalThis.__revamp?.mount?.("hydra.similarGames", SimilarGames) ?? SimilarGames;').length, 2);
 
     // Files the patches didn't touch must be byte-identical: their bytes still match the header's original hashes.
     const sample: Array<[string, string]> = [];

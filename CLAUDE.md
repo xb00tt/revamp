@@ -16,7 +16,7 @@ npm test                                    # all unit tests (node --test, TS ru
 npm run typecheck                           # tsc --noEmit over packages, bundles and tests
 node --test packages/engine/test/api.test.ts                       # one test file
 node --test --test-name-pattern='unlisted version' packages/engine/test/api.test.ts   # one test
-npm run build -w @revamp/bundle-official    # esbuild → bundles/official/dist/official.mjs
+npm run build -w @revamp/bundle-official    # scripts/build.ts: the extensions, then bundles/official/dist/official.mjs
 npm run test:integration                    # builds the bundle, then patches the REAL releases into temp homes
 npm run revamp -- patches hydra             # CLI from source; also: patch <app> [--version v --force]
                                             #   [--enable/--disable "<patch>"] [--option "<patch>:<key>=<value>"]
@@ -51,6 +51,14 @@ All network, hashing, extraction and installing happen in the parent.
 - `graph.ts`: patches run in topological order with ties by name, so inserts at the same position follow patch-name order. `finalize` runs in reverse. A failed dependency marks dependents `skipped`. Internal patches have no `name`, are reached via `dependsOn`, and are labeled by their `description`.
 
 **Bundle format.** One self-contained ESM file with no imports and no top-level `await`. The runner loads it with `require(esm)`, because `import()` from disk fails inside a Node SEA.
+
+**Extensions (spec §6, M3).** New UI ships as an extension: `bundles/official/src/hydra/extension/` (TSX, its own tsconfig; never imported by Node tests, which can't strip JSX).
+- `scripts/build.ts` compiles it with esbuild into a string and embeds it in the bundle through `define` (`__REVAMP_HYDRA_EXTENSION__`). Unit tests import bundle sources directly and get a placeholder.
+- The internal "Hydra extension loader" patch adds it as `out/renderer/assets/revamp-hydra.js`, loaded before Hydra's module script.
+- Registry patches (`src/hydra/registry.ts`) capture Hydra internals from the stock code that uses them. Each name is `resolve()`-checked as top-level, and they are assigned to `globalThis.__revamp.registry` just before the root render call.
+- Extension code reaches them only at call time through `@revamp/sdk/shims/*` and the extension's `app.ts`, because the extension loads before Hydra's module runs.
+- A feature patch routes a stock component through `mount()`: the extension's replacement renders inside an error boundary that falls back to the stock component.
+- `bundles/official/test/extension.test.ts` builds the extension and renders it with real React 18.3.1 (Hydra's version) through `react-test-renderer`.
 
 **Fingerprinting rules learned on real releases:**
 - Anchor on behavior strings (case labels, i18n keys, route paths), never on minified or `$1`-suffixed names.

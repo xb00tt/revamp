@@ -25,7 +25,7 @@ test(
     assert.equal(r.untested, true);
     assert.equal(r.installed, false);
     assert.equal(r.exitCode, 2);
-    assert.match(report, /^Hydra 4\.0\.6 \(untested\): 3\/5 patches apply \(dry run, nothing installed\)$/m);
+    assert.match(report, /^Hydra 4\.0\.6 \(untested\): 3\/6 patches apply \(dry run, nothing installed\)$/m);
     const status = Object.fromEntries(r.results.filter((x) => !x.internal).map((x) => [x.name, x.status]));
     assert.deepEqual(status, {
       "Disable self-update": "applied",
@@ -33,6 +33,7 @@ test(
       "Use the bundled UI": "applied",
       "Recently added sort": "failed",
       "Recently downloaded sort": "failed",
+      "More like this ranking": "skipped", // 4.0.6 has no stock "More like this" section to mount over
     });
     for (const x of r.results.filter((y) => y.status === "failed")) {
       assert.match(x.message!, /^fingerprint "[^"]+" failed at step "(strings|pattern|regex|where:[^"]+|count)": \S/, x.name);
