@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@revamp/sdk": "*",
+    "acorn": "^8.19.0",
     "xz-decompress": "^0.2.3"
   }
 }
