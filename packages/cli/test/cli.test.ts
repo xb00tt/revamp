@@ -45,6 +45,8 @@ test("formatPatchResult shows each patch, failures under it, and notes", () => {
   );
   assert.match(formatPatchResult({ ...r, installed: false, aborted: 'required patch "X" failed', exitCode: 1 }), /nothing installed: required patch "X" failed/);
   assert.match(formatPatchResult({ ...r, version: "4.1.7", untested: true }), /^Hydra 4\.1\.7 \(untested\): 1\/2 patches apply/);
+  const helperFailed = [...r.results, { name: "(internal patch #4: helper)", status: "failed" as const, required: false, internal: true, message: "m" }];
+  assert.match(formatPatchResult({ ...r, results: helperFailed }), /^Hydra 4\.1\.6: 1\/2 patches apply[^]*\n  ✗ \(internal patch #4: helper\)\n      m\nNote: W$/);
 });
 
 test("formatInstalls lists versions in local time and marks the current and untested ones", (t) => {

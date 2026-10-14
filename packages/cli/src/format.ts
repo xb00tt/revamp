@@ -4,7 +4,8 @@ const MARK: Record<PatchStatus, string> = { applied: "✓", failed: "✗", skipp
 
 export function formatPatchResult(r: PatchAppResult): string {
   const shown = r.results.filter((x) => !x.internal || x.status === "failed");
-  const ran = shown.filter((x) => x.status !== "disabled" && x.status !== "incompatible");
+  // The count is of the patches users choose; a failed internal patch is listed, but as the reason others were skipped.
+  const ran = shown.filter((x) => !x.internal && x.status !== "disabled" && x.status !== "incompatible");
   const applied = ran.filter((x) => x.status === "applied").length;
   const outcome = r.aborted
     ? `nothing installed: ${r.aborted}`
