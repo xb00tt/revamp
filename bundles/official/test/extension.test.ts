@@ -31,10 +31,17 @@ const file = join(mkdtempSync(join(tmpdir(), "revamp-ext-")), "revamp-hydra.js")
 writeFileSync(file, await buildExtension(entry));
 await import(pathToFileURL(file).href);
 
-const game = (objectId: string) => ({ objectId, shop: "steam", title: `Game ${objectId}`, libraryImageUrl: `${objectId}.jpg`, downloadSources: [] });
+const game = (objectId: string) => ({
+  objectId,
+  shop: "steam",
+  title: `Game ${objectId}`,
+  libraryImageUrl: `${objectId}.jpg`,
+  downloadSources: objectId === "D" ? ["source-1"] : [],
+});
 // The current game (100) has six specific tags. Each catalogue search returns games for the tags it was given;
-// /similar returns games without tags. Expected rank by hit count: A (3), B (2), C and D (1, C seen first), E (0).
-const searches: Record<string, string[]> = { "6:popularity": ["A"], "5:popularity": ["B", "A"], "5:reviewScore": ["A", "C"], "4:popularity": ["B", "D"] };
+// /similar returns games without tags. Expected rank: A (3 hits), B (2), then the 1-hit games by the fork's
+// tie-breaks: D (has a download source), C (seen before F), F; E (0 hits) is owned, so it goes last.
+const searches: Record<string, string[]> = { "6:popularity": ["A"], "5:popularity": ["B", "A"], "5:reviewScore": ["A", "C"], "4:popularity": ["B", "D", "F"] };
 (globalThis as { window?: unknown }).window = {
   electron: {
     hydraApi: {
@@ -64,7 +71,7 @@ function hydra(overrides: Record<string, unknown> = {}) {
     levelDBService: { values: async () => [{ id: "source-1", createdAt: "2026-01-01" }] },
     orderBy: (items: unknown[]) => items,
     logger: { error: () => {} },
-    useLibrary: () => ({ library: [{ shop: "steam", objectId: "D" }] }),
+    useLibrary: () => ({ library: [{ shop: "steam", objectId: "E" }] }),
     useAppDispatch: () => () => {},
     useAppSelector: (select: (s: typeof state) => unknown) => select(state),
     setTags: (tags: unknown) => ({ type: "setTags", payload: tags }),
@@ -95,9 +102,9 @@ test("More like this ranks by shared tags, captions the shared tags, and badges 
   const root = await renderSimilarGames();
   assert.equal(root.findAll((n) => n.type === "stock").length, 0);
   const cards = root.findAll((n) => n.type === "card");
-  assert.deepEqual(cards.map((c) => c.props.gameTitle), ["Game A", "Game B", "Game C", "Game E", "Game D"]);
+  assert.deepEqual(cards.map((c) => c.props.gameTitle), ["Game A", "Game B", "Game D", "Game C", "Game F", "Game E"]);
   const captions = root.findAll((n) => n.type === "p").map((p) => p.props.children);
-  assert.deepEqual(captions, ["Roguelike · Deckbuilder", "Roguelike · Deckbuilder", "Roguelike · Deckbuilder", "", "Roguelike · Deckbuilder"]);
+  assert.deepEqual(captions, [...Array(5).fill("Roguelike · Deckbuilder"), ""]);
   const badges = root.findAll((n) => n.type === "span" && n.props.className === "similar-games__badge");
   assert.deepEqual(badges.map((b) => b.props.children), ["already_in_library"]);
 });
