@@ -98,6 +98,8 @@ class TarExtractor {
   private seen = new Set<string>();
   /** archive path → extracted destination, for hardlinks */
   private extracted = new Map<string, string>();
+  /** Output-relative paths of symlinks this archive created; nothing may be written below them. */
+  private symlinks = new Set<string>();
   private readonly rootDir: string;
   private readonly select: (archivePath: string) => string | null;
 
@@ -188,6 +190,7 @@ class TarExtractor {
       const target = resolve(dirname(dest), link);
       if (!this.inside(target)) throw new DebError(`symlink ${path} -> ${link} points outside the archive`);
       symlinkSync(link, dest);
+      this.symlinks.add(relKey(rel));
       this.result.symlinks++;
       this.startBody({ kind: "skip" }, size);
     } else if (type === "1") {
@@ -234,6 +237,13 @@ class TarExtractor {
   }
 
   private dest(rel: string): string {
+    // Symlink targets are checked lexically, which is only sound if no path goes *through* a symlink:
+    // a chain like a -> . then a/b -> ../.. looks in-tree but escapes. So symlinks may only be leaves.
+    const parts = relKey(rel).split("/");
+    for (let i = 1; i < parts.length; i++) {
+      const parent = parts.slice(0, i).join("/");
+      if (this.symlinks.has(parent)) throw new DebError(`refusing to write ${rel}: it is inside a symlink (${parent}) from the archive`);
+    }
     const d = resolve(this.rootDir, rel);
     if (!this.inside(d)) throw new DebError(`refusing to write outside the output directory: ${rel}`);
     return d;
@@ -243,6 +253,8 @@ class TarExtractor {
     return p === this.rootDir || p.startsWith(this.rootDir + sep);
   }
 }
+
+const relKey = (rel: string) => rel.split("/").filter((s) => s !== "" && s !== ".").join("/");
 
 /** Normalizes "./a/b/" to "a/b" and rejects absolute paths, ".." segments and NUL bytes. */
 function safeArchivePath(raw: string): string {

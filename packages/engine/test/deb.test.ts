@@ -74,6 +74,16 @@ const hostile: Array<[string, Buffer[], RegExp]> = [
   ["absolute paths", [tarEntry("/tmp/evil.txt", "x")], /absolute/],
   ["symlinks out of the tree", [tarEntry("app/l", "", { type: "2", linkname: "../../../etc" })], /outside/],
   ["absolute symlinks", [tarEntry("app/l", "", { type: "2", linkname: "/etc/passwd" })], /outside|absolute/],
+  [
+    // Each link looks in-tree lexically, but app/a/b really resolves through app/a and lands outside out/.
+    "writes through symlink chains",
+    [
+      tarEntry("app/a", "", { type: "2", linkname: "." }),
+      tarEntry("app/a/b", "", { type: "2", linkname: "../.." }),
+      tarEntry("app/a/b/evil.txt", "x"),
+    ],
+    /inside a symlink/,
+  ],
   ["device nodes", [tarEntry("app/dev", "", { type: "3" })], /unsupported tar entry type/],
   ["duplicate paths", [tarEntry("app/a", "1"), tarEntry("app/a", "2")], /duplicate/],
   ["bad checksums", [tarEntry("app/a", "1", { checksum: "bad" })], /checksum/],
