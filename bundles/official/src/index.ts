@@ -1,6 +1,7 @@
 import type { Manifest } from "@revamp/sdk";
 import { hydra } from "./apps.ts";
 import { useBundledUi } from "./hydra/bundled-ui.ts";
+import { recentlyAddedSort } from "./hydra/recently-added-sort.ts";
 import { recentlyDownloadedSort } from "./hydra/recently-downloaded-sort.ts";
 import { disableSelfUpdate } from "./universal/disable-self-update.ts";
 import { sideBySideIdentity } from "./universal/side-by-side-identity.ts";
@@ -15,4 +16,4 @@ export const manifest: Manifest = {
 };
 
 export const apps = [hydra];
-export const patches = [disableSelfUpdate, sideBySideIdentity, useBundledUi, recentlyDownloadedSort];
+export const patches = [disableSelfUpdate, sideBySideIdentity, useBundledUi, recentlyAddedSort, recentlyDownloadedSort];

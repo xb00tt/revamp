@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { memoryStore, runJob, type Selection } from "@revamp/engine";
+import { formatPatchResult } from "../../../packages/cli/src/format.ts";
 import * as bundle from "../src/index.ts";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/hydra-4.1.6/${name}`, import.meta.url), "utf8");
@@ -40,6 +41,7 @@ test("every Hydra patch applies to the Hydra 4.1.6 excerpts", () => {
     ["Disable self-update", "applied", false],
     ["Side-by-side identity", "applied", false],
     ["Use the bundled UI", "applied", false],
+    ["Recently added sort", "applied", false],
     ["Recently downloaded sort", "applied", false],
     ["(internal patch #4: Hydra locales)", "applied", true],
   ]);
@@ -76,6 +78,7 @@ test("renderer patches are skipped, not silently dead, when the bundled UI can't
   assert.equal(status("Use the bundled UI").status, "failed");
   assert.equal(status("Recently downloaded sort").status, "skipped");
   assert.match(status("Recently downloaded sort").message!, /dependency "Use the bundled UI" failed/);
+  assert.equal(status("Recently added sort").status, "skipped");
 });
 
 test("Recently downloaded sort edits the five places and leaves the decoys alone", () => {
@@ -132,9 +135,74 @@ test("the sorts are skipped, naming the internal patch, when the locales can't b
   const locales = out.results.find((r) => r.internal)!;
   assert.equal(locales.status, "failed");
   assert.match(locales.message!, /fingerprint "i18n resources" failed at step "where:values are locale objects": 2 match\(es\) before this check, 0 after/);
-  for (const name of ["Recently downloaded sort"]) {
+  for (const name of ["Recently added sort", "Recently downloaded sort"]) {
     const r = out.results.find((x) => x.name === name)!;
     assert.equal(r.status, "skipped");
     assert.equal(r.message, 'dependency "(internal patch #4: Hydra locales)" failed');
   }
+});
+
+test("Recently added sort edits the same five places; menus read played, added, downloaded", () => {
+  const code = job().outputs.get(RENDERER)!.toString();
+  assert.equal(code.match(/"recently_added"/g)?.length, 5);
+  assert.ok(code.includes('{ value: "recently_added", label: t2("sort_recently_added", { ns: "library" }), icon: jsxRuntimeExports.jsx(CalendarIcon$revamp, { size: 14 }) }'));
+  assert.ok(code.includes('{ value: "recently_added", label: t2("sort_recently_added") }'));
+  assert.match(code, /var CalendarIcon\$revamp = createIconComponent\("CalendarIcon", "octicon octicon-calendar", function\(\) \{\n  return \{ "16": \{ "width": 16, "path": jsxRuntimeExports\.jsx\("path", \{ d: "M4\.75 0a/);
+  for (const list of [/"recently_played",\s*"recently_added",\s*"recently_downloaded",\s*"most_played"/g, /value: "recently_played"[^]*?value: "recently_added"[^]*?value: "recently_downloaded"[^]*?value: "most_played"/g]) {
+    assert.equal(code.match(list)?.length, 2, String(list));
+  }
+});
+
+test("Recently added sort orders newest first, then games without a date, each group by title", () => {
+  const code = job().outputs.get(RENDERER)!.toString();
+  const source = code.slice(code.indexOf("const sortLibraryGames$1"), code.indexOf('}, "sortLibraryGames$1");') + 25);
+  const sortLibraryGames = new Function(
+    "__name",
+    "compareLibraryGamesByTitle",
+    "getPlayTimeDifference",
+    "getMostPlayedDifference",
+    `${source}\nreturn sortLibraryGames$1;`,
+  )((f: unknown) => f, (a: { title: string }, b: { title: string }) => a.title.localeCompare(b.title), () => 0, () => 0);
+  const games = [
+    { title: "No date B" },
+    { title: "Old", addedToLibraryAt: "2024-01-01T00:00:00.000Z" },
+    { title: "Bad date", addedToLibraryAt: "not a date" },
+    { title: "New", addedToLibraryAt: new Date("2026-10-01").getTime() },
+    { title: "No date A", addedToLibraryAt: null },
+  ];
+  assert.deepEqual(sortLibraryGames(games, "recently_added").map((g: { title: string }) => g.title), ["New", "Old", "Bad date", "No date A", "No date B"]);
+});
+
+test("a release the patches don't fit gives the spec's report: what applies, and where each miss failed", () => {
+  const changed = fixture("renderer-excerpt.js").replace('case "recently_played": {', 'case "recently_played_v2": {');
+  const input = { appId: "hydra", version: "4.1.7", selection: NONE, force: true, stockDesktop: STOCK };
+  const out = runJob(bundle, input, memoryStore(hydraFiles({ [RENDERER]: changed })));
+  const report = formatPatchResult({
+    appId: "hydra",
+    appName: "Hydra",
+    version: "4.1.7",
+    untested: true,
+    results: out.results,
+    installed: false,
+    dryRun: true,
+    exitCode: 2,
+    warnings: [],
+    logs: out.logs,
+  });
+  const miss =
+    'fingerprint "library sort switch" failed at step "pattern": strings matched 1 file(s): out/renderer/assets/index-Cpo9haoY.js; ' +
+    'pattern [...$GAMES].sort(($A, $B) => { switch ($BY) { case "recently_played": { $$$ } } $$$ }) matched 0 nodes';
+  assert.equal(
+    report,
+    [
+      "Hydra 4.1.7 (untested): 3/5 patches apply (dry run, nothing installed)",
+      "  ✓ Disable self-update (required)",
+      "  ✓ Side-by-side identity (required)",
+      "  ✓ Use the bundled UI",
+      "  ✗ Recently added sort",
+      `      ${miss}`,
+      "  ✗ Recently downloaded sort",
+      `      ${miss}`,
+    ].join("\n"),
+  );
 });
