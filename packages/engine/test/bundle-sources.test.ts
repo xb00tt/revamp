@@ -69,6 +69,7 @@ test("a GitHub source is fetched from the default branch, verified, described an
     sha256: pin,
     downloadUrl: `${s.base}/dl/demo-1.0.0.mjs`,
     apps: ["demo"],
+    changelog: "First.",
   });
   assert.equal(c.changelog, "First.");
   assert.equal(c.description.manifest.name, "Demo bundle");

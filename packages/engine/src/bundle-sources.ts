@@ -21,6 +21,8 @@ export interface BundleSource {
   downloadUrl?: string;
   /** The app ids the bundle defines, so choosing a bundle for an app needs no sandbox run. */
   apps: string[];
+  /** The notes its bundle.json gave for this version (GitHub and URL sources). */
+  changelog?: string;
 }
 
 export interface SourceFetchOptions {
@@ -127,7 +129,7 @@ export async function prepareSource(paths: Paths, location: string, o: SourceFet
   } else {
     const j = await fetchBundleJson({ kind, location }, o);
     await downloadVerified({ url: j.download_url, dest: cachePath(paths, j.sha256), sha256: j.sha256, fetch: o.fetch });
-    source = { location, kind, name: j.name, version: j.version, sha256: j.sha256, downloadUrl: j.download_url, apps: [] };
+    source = { location, kind, name: j.name, version: j.version, sha256: j.sha256, downloadUrl: j.download_url, apps: [], ...(j.changelog && { changelog: j.changelog }) };
     changelog = j.changelog;
   }
   const bundlePath = cachePath(paths, source.sha256);

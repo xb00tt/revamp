@@ -7,9 +7,9 @@ import { mkdtempSync, readFileSync, readlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { patchApp } from "../src/api.ts";
-import { addSource, prepareSource } from "../src/bundle-sources.ts";
+import { addSource, prepareSource, removeSource } from "../src/bundle-sources.ts";
 import { revampPaths } from "../src/paths.ts";
-import { checkMessage, checkUpdates, updateApp, type AppCheck, type UpdateOptions } from "../src/updates.ts";
+import { checkMessage, checkUpdates, loadSkipped, skipVersion, updateApp, type AppCheck, type UpdateOptions } from "../src/updates.ts";
 import { demoDeb, writeDemoBundle } from "./helpers/demo.ts";
 
 /** Demo 1.0.0 installed from a file source; the fake GitHub's latest release is `state.latest`. */
@@ -38,7 +38,14 @@ patches.push({ kind: "patch", name: "Old only", compatibleWith: [{ app, versions
   writeDemoBundle(bundle, { sha256, extra: list3 ? extra : undefined });
   addSource(paths, (await prepareSource(paths, bundle)).source);
   assert.equal((await patchApp({ ...o, appId: "demo", bundlePath: bundle, version: "1.0.0" })).installed, true);
-  return { paths, o, state, close: () => server.close() };
+  /** Swaps the file source for a newer bundle 1.1.0 that adds the default patch "Say hi". */
+  const newerBundle = async () => {
+    const next = join(root, "demo-1.1.0.mjs");
+    writeDemoBundle(next, { sha256, version: "1.1.0", extra: 'patches.push({ kind: "patch", name: "Say hi", compatibleWith: [{ app }], execute() {} });' });
+    removeSource(paths, bundle);
+    addSource(paths, (await prepareSource(paths, next)).source);
+  };
+  return { paths, o, state, newerBundle, close: () => server.close() };
 }
 
 test("check finds nothing new, then dry-runs a newer release and records the result", async (t) => {
@@ -92,4 +99,45 @@ test("checkMessage words each outcome the way the notification shows it", () => 
   assert.equal(checkMessage({ ...c, aborted: "required patch failed" }), "Hydra 4.1.7 out, but its patch job fails: required patch failed");
   assert.equal(checkMessage({ ...c, status: "up to date", latest: "4.1.6" }), "Hydra 4.1.6 is up to date");
   assert.equal(checkMessage({ appId: "hydra", appName: "hydra", current: "4.1.6", status: "failed", error: "offline" }), "Couldn't check hydra: offline");
+});
+
+test("a newer bundle for the installed version is reported as new patches, and update re-patches with it", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  await s.newerBundle();
+  const [c] = (await checkUpdates(s.o)).apps;
+  assert.deepEqual(c, {
+    appId: "demo",
+    appName: "Demo",
+    current: "1.0.0",
+    latest: "1.0.0",
+    listed: true,
+    status: "patches",
+    bundle: { name: "Demo bundle", version: "1.1.0" },
+    newPatches: ["Say hi"],
+  });
+  assert.equal(checkMessage(c), "Demo 1.0.0: Demo bundle 1.1.0 has new patches for it (Say hi); re-patch to apply them");
+  assert.equal(checkMessage({ ...c, newPatches: [] }), "Demo 1.0.0: Demo bundle 1.1.0 is out; re-patch to use it");
+
+  const u = await updateApp("demo", s.o);
+  assert.deepEqual(u.result?.results.map((r) => [r.name, r.status]), [["Say goodbye", "applied"], ["Say hi", "applied"]]);
+  const receipt = JSON.parse(readFileSync(join(s.paths.data, "apps/demo/1.0.0/revamp.json"), "utf8"));
+  assert.equal(receipt.bundle.version, "1.1.0");
+  assert.equal((await checkUpdates(s.o)).apps[0].status, "up to date");
+  assert.equal((await updateApp("demo", s.o)).result, undefined);
+});
+
+test("a skipped release stays quiet until a newer one is out", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  s.state.latest = "v3.0.0";
+  skipVersion(s.paths, "demo", "3.0.0");
+  assert.deepEqual(loadSkipped(s.paths), { demo: "3.0.0" });
+  const [c] = (await checkUpdates(s.o)).apps;
+  assert.deepEqual([c.status, c.latest, c.applied], ["skipped", "3.0.0", undefined]);
+  assert.equal(checkMessage(c), "Demo 3.0.0 out (skipped)");
+  skipVersion(s.paths, "demo", "2.9.0"); // an older skip doesn't hide 3.0.0
+  assert.equal((await checkUpdates(s.o)).apps[0].status, "update");
+  skipVersion(s.paths, "demo", null);
+  assert.deepEqual(loadSkipped(s.paths), {});
 });

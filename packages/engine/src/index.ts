@@ -15,7 +15,18 @@ export {
   type PatchAppResult,
   type PatchListing,
 } from "./api.ts";
-export { checkMessage, checkUpdates, latestRelease, updateApp, type AppCheck, type AppUpdate, type CheckResult, type UpdateOptions } from "./updates.ts";
+export {
+  checkMessage,
+  checkUpdates,
+  latestRelease,
+  loadSkipped,
+  skipVersion,
+  updateApp,
+  type AppCheck,
+  type AppUpdate,
+  type CheckResult,
+  type UpdateOptions,
+} from "./updates.ts";
 export {
   addSource,
   bundleForApp,

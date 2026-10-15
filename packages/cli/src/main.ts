@@ -165,7 +165,7 @@ async function main(argv: string[]): Promise<number> {
         const text = checkMessage(c);
         print(text);
         // notify-send is optional: without it, the line is still in the timer's journal.
-        if (values.notify && c.status !== "up to date") spawnSync("notify-send", ["Revamp", text], { stdio: "ignore" });
+        if (values.notify && c.status !== "up to date" && c.status !== "skipped") spawnSync("notify-send", ["Revamp", text], { stdio: "ignore" });
       }
       return r.apps.some((c) => c.status === "failed") ? 1 : 0;
     }

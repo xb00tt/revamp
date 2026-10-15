@@ -222,6 +222,10 @@ export interface PatchListing {
   patches: Array<PatchInfo & { required: boolean; compatible: boolean }>;
 }
 
+/** The patch can apply to this app version (it lists no apps, or lists this one with no versions or with this version). */
+export const fitsVersion = (p: PatchInfo, appId: string, version: string): boolean =>
+  p.apps === null || p.apps.some((a) => a.app === appId && (a.versions === null || a.versions.includes(version)));
+
 /** What `revamp patches <app>` shows: every patch that can apply to the app, judged for one version. */
 export async function listPatches(bundlePath: string, appId: string, version?: string): Promise<PatchListing> {
   const desc = await describe(bundlePath);
@@ -232,7 +236,7 @@ export async function listPatches(bundlePath: string, appId: string, version?: s
   const patches = patchesForApp(desc.patches, app.id).map((p) => ({
     ...p,
     required: required.has(p.name),
-    compatible: p.apps === null || p.apps.some((a) => a.app === app.id && (a.versions === null || a.versions.includes(v))),
+    compatible: fitsVersion(p, app.id, v),
   }));
   return { bundle: desc.manifest, app, version: v, listed: Object.hasOwn(app.versions, v), patches };
 }
