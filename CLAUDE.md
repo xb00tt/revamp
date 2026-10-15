@@ -16,14 +16,20 @@ npm test                                    # all unit tests (node --test, TS ru
 npm run typecheck                           # two tsc --noEmit projects: the repo, then the TSX extension
 node --test packages/engine/test/api.test.ts                       # one test file
 node --test --test-name-pattern='unlisted version' packages/engine/test/api.test.ts   # one test
-npm run build -w @revamp/bundle-official    # scripts/build.ts: the extensions, then bundles/official/dist/official.mjs
-npm run test:integration                    # builds the bundle, then patches the REAL releases into temp homes
+npm run build -w @revamp/bundle-official    # scripts/build.ts: the extensions, then dist/official.mjs, patches.json, bundle.json
+npm run build -w @revamp/cli                # packages/cli/dist/revamp, the single executable (SEA)
+npm run install:cli                         # builds the SEA and installs it; ~/.local/bin/revamp links to it
+npm run test:integration                    # builds the bundle, patches the REAL releases into temp homes, tests the SEA
 npm run revamp -- patches hydra             # CLI from source; also: patch <app> [--version v --force]
                                             #   [--enable/--disable "<patch>"] [--option "<patch>:<key>=<value>"]
-                                            #   [--bundle file] [--dry-run], list, rollback <app>, uninstall <app>
+                                            #   [--bundle file] [--dry-run], list, rollback <app>, uninstall <app>,
+                                            #   sources add/list/remove, check [--notify], update [app] [--force],
+                                            #   timer enable|disable
+npm run release -w @revamp/bundle-official  # owner only: GitHub release bundle-v<version>, then commits bundle.json
 ```
 
-- The CLI and integration tests use `bundles/official/dist/official.mjs`. Rebuild it after changing bundle sources, or the CLI runs the old patches.
+- Without `--bundle`, the CLI takes an app's bundle from the first source that has it (`~/.config/revamp/sources.json`, bundles cached as `~/.cache/revamp/bundles/<sha256>.mjs`). Only when no source has the app and it runs from the repo does it use `bundles/official/dist/official.mjs`. So if the CLI runs old patches, check `revamp sources list`, then rebuild.
+- The integration tests use `bundles/official/dist/official.mjs` directly. Rebuild it after changing bundle sources.
 - The integration tests (`REVAMP_INTEGRATION=1`) reuse the real download cache `~/.cache/revamp/releases`: Hydra 4.1.6, Heroic 2.22.3, and Hydra 4.0.6 forced as the deliberate mismatch. Without the cache that is about 430 MB of downloads. With it, a run takes about a minute.
 - Passing tests install nothing for the owner: integration runs use temp homes. To refresh the real menu entries, quit the app, then `npm run revamp -- patch <app>`; `npm run revamp -- list` shows what is installed.
 - The forced Hydra 4.0.6 test calls api.github.com unauthenticated (60 requests/hour); HTTP 403 there means wait and rerun.
@@ -33,7 +39,7 @@ npm run revamp -- patches hydra             # CLI from source; also: patch <app>
 ## Architecture (the parts that span files)
 
 **Parent and sandbox split (spec §4.4).** The parent process never runs bundle code. `engine/api.ts` `patchApp` runs the job:
-1. Describe: `sandbox.ts` spawns `runner.ts` under `node --permission` (bundle readable only). It returns plain JSON (`BundleDescription`).
+1. Describe: `sandbox.ts` spawns `runner.ts` under `node --permission` (bundle readable only). It returns plain JSON (`BundleDescription`). Inside the SEA, the binary is its own runner (`revamp --sandbox-runner`, entry `cli/src/sea.ts`) and the permission flags travel in `--node-options`, because a SEA ignores Node flags in argv.
 2. The parent checks the engine version, app, version and selection (`config.ts` `resolveSelection`) before any download.
 3. Download with SHA-256 verification (`download.ts`). The hash comes from the bundle; for unlisted versions with `--force`, from GitHub's release API `digest` (labeled "untested").
 4. Safe streaming `.deb` extraction into `apps/<app>/.staging-*` (`deb.ts`).
@@ -50,7 +56,14 @@ All network, hashing, extraction and installing happen in the parent.
 - `edits.ts` buffers edits per patch, so a throwing patch leaves nothing behind. Overlapping edits fail, naming both patches. Every changed JS file is re-parsed.
 - `graph.ts`: patches run in topological order with ties by name, so inserts at the same position follow patch-name order. `finalize` runs in reverse. A failed dependency marks dependents `skipped`. Internal patches have no `name`, are reached via `dependsOn`, and are labeled by their `description`.
 
-**Bundle format.** One self-contained ESM file with no imports and no top-level `await`. The runner loads it with `require(esm)`, because `import()` from disk fails inside a Node SEA.
+**Bundle format.** One self-contained ESM file with no imports and no top-level `await`. The runner loads it with `createRequire(bundle)(bundle)` (require(esm)), because `import()` from disk fails inside a Node SEA.
+
+**Distribution (spec §7, M4).**
+- `engine/bundle-sources.ts`: a source is a GitHub repo (`bundle.json` from its default branch), a `bundle.json` URL or a `.mjs` file. `sources add` verifies, caches and describes the bundle, shows it, and pins its SHA-256 once the user confirms. `refreshSources` moves only GitHub pins, to a new `bundle.json` version. The first source with an app wins.
+- `engine/updates.ts`: `checkUpdates` (refresh, newest GitHub release per installed app, dry run, `~/.local/state/revamp/last-check.json`) and `updateApp`. `cli/src/timer.ts` writes the systemd user timer that runs the installed binary's `check --notify` daily.
+- Publishing: `npm run release` puts `official.mjs` and `patches.json` on the GitHub release `bundle-v<version>`, and commits the root `bundle.json` that points at it. `bundles/official/CHANGELOG.md` needs a `## <version>` section (a unit test checks this).
+- CI (`.github/workflows/ci.yml`) runs the unit tests, then dry-runs every app version in `patches.json` against the real release, cached per app and version.
+- Bundle text is untrusted on screen too: the CLI prints everything through `printable()`, so control characters can't rewrite the trust prompt.
 
 **Extensions (spec §6, M3).** New UI ships as an extension: `bundles/official/src/hydra/extension/` (its own tsconfig with JSX and DOM types). Node tests may import its plain `.ts` files but never a `.tsx` file or anything that imports one, because Node can't strip JSX.
 - `scripts/build.ts` compiles it with esbuild into a string and embeds it in the bundle through `define` (`__REVAMP_HYDRA_EXTENSION__`). Unit tests import bundle sources directly and get a placeholder.

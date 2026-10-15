@@ -5,7 +5,8 @@
   "type": "module",
   "license": "GPL-3.0-only",
   "scripts": {
-    "build": "node scripts/build.ts"
+    "build": "node scripts/build.ts",
+    "release": "node scripts/release.ts"
   },
   "dependencies": { "@revamp/sdk": "*" },
   "devDependencies": { "@revamp/engine": "*" }
