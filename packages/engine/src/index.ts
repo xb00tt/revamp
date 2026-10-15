@@ -3,7 +3,18 @@ export { describeBundle, runJob, type BundleModule, type JobInput, type JobOutpu
 export type { PatchResult, PatchStatus } from "./graph.ts";
 export type { Selection } from "./config.ts";
 
-export { describe, listPatches, newestStable, patchApp, patchCounts, type PatchAppOptions, type PatchAppResult, type PatchListing } from "./api.ts";
+export {
+  describe,
+  listPatches,
+  newestStable,
+  patchApp,
+  patchCounts,
+  type JobProgress,
+  type JobStep,
+  type PatchAppOptions,
+  type PatchAppResult,
+  type PatchListing,
+} from "./api.ts";
 export { checkMessage, checkUpdates, latestRelease, updateApp, type AppCheck, type AppUpdate, type CheckResult, type UpdateOptions } from "./updates.ts";
 export {
   addSource,

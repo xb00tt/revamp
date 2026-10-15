@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { assertAsarPath, readAsar } from "./asar.ts";
 import { ASAR_PATH, describeBundle, runJob, type BundleModule, type RunnerJob, type SandboxPatchOutput } from "./job.ts";
+import { EVENT_PREFIX } from "./sandbox.ts";
 import { asarStore } from "./sources.ts";
 
 function loadBundle(path: string): BundleModule {
@@ -25,7 +26,8 @@ async function main(): Promise<string> {
   const bundle = loadBundle(job.bundle);
   if (job.mode === "describe") return JSON.stringify(describeBundle(bundle));
 
-  const out = runJob(bundle, job, asarStore(readAsar(join(job.staging, ASAR_PATH))));
+  const progress = (patch: string, index: number, total: number) => process.stderr.write(`${EVENT_PREFIX}${JSON.stringify({ patch, index, total })}\n`);
+  const out = runJob(bundle, job, asarStore(readAsar(join(job.staging, ASAR_PATH))), progress);
   for (const [path, buf] of out.outputs) {
     const dest = join(job.outDir, "files", ...assertAsarPath(path).split("/"));
     mkdirSync(dirname(dest), { recursive: true });

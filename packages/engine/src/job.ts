@@ -46,7 +46,13 @@ export interface SandboxPatchOutput {
 type DesktopChanges = Record<string, string | null>;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function runJob(bundle: BundleModule, input: JobInput, store: SourceStore): JobOutput {
+/** `onPatch` hears each patch as it starts, by label, for progress displays; results come only at the end. */
+export function runJob(
+  bundle: BundleModule,
+  input: JobInput,
+  store: SourceStore,
+  onPatch?: (patch: string, index: number, total: number) => void,
+): JobOutput {
   const app = bundle.apps.find((a) => a.id === input.appId);
   if (!app) throw new Error(`bundle "${bundle.manifest.name}" has no app "${input.appId}"`);
   const plan = planPatches(app, input.version, bundle.patches, input.selection, input.force);
@@ -103,8 +109,9 @@ export function runJob(bundle: BundleModule, input: JobInput, store: SourceStore
     }
   };
 
-  for (const p of plan.order) {
+  for (const [i, p] of plan.order.entries()) {
     const r = result(p);
+    onPatch?.(label(p), i + 1, plan.order.length);
     const bad = failedDependency(p);
     if (bad) {
       r.status = "skipped";

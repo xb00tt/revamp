@@ -235,3 +235,15 @@ test("a wrong GitHub digest is enforced, and an unsafe --version is refused befo
   await assert.rejects(patchApp({ ...s.opts, version: "../x", force: true }), /unsafe version/);
   assert.equal(s.hits(), before);
 });
+
+test("reports progress: the download, each patch as it starts, then repack and install", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  const events: unknown[] = [];
+  const r = await patchApp({ ...s.opts, progress: (e) => events.push(e) });
+  assert.equal(r.installed, true);
+  const steps = events.map((e) => (e as { step: string }).step);
+  assert.deepEqual([...new Set(steps)], ["download", "extract", "patch", "repack", "install"]);
+  assert.deepEqual(events.filter((e) => (e as { step: string }).step === "patch"), [{ step: "patch", patch: "Say goodbye", index: 1, total: 1 }]);
+  assert.deepEqual(events.at(steps.lastIndexOf("download")), { step: "download", percent: 100 });
+});

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BundleDescription, SandboxPatchOutput } from "../src/job.ts";
-import { nodeOptions, runSandboxed, SandboxError } from "../src/sandbox.ts";
+import { EVENT_PREFIX, nodeOptions, runSandboxed, SandboxError } from "../src/sandbox.ts";
 import { writeDemoApp, writeDemoBundle } from "./helpers/demo.ts";
 
 const PROBE = fileURLToPath(new URL("./fixtures/sandbox-probe.mjs", import.meta.url));
@@ -124,4 +124,16 @@ test("the runner refuses to run outside the permission model", () => {
   const r = spawnSync(process.execPath, [runner], { input: "{}", encoding: "utf8" });
   assert.equal(r.status, 1);
   assert.equal(r.stderr, "the sandbox runner only runs under Node's permission model");
+});
+
+test("event lines on the child's stderr reach onEvent and stay out of the error text", async () => {
+  const dir = tmp();
+  const entry = join(dir, "events.mjs");
+  writeFileSync(entry, `process.stderr.write(${JSON.stringify(EVENT_PREFIX)} + '{"patch":"A","index":1,"total":2}\\nreal problem\\n');\nprocess.stderr.write(${JSON.stringify(EVENT_PREFIX)} + "not json");\nprocess.exitCode = 1;\n`);
+  const events: unknown[] = [];
+  await assert.rejects(
+    runSandboxed({}, { read: [dir], write: [] }, { entry, onEvent: (e) => events.push(e) }),
+    (e: Error) => e instanceof SandboxError && e.message === `real problem\n${EVENT_PREFIX}not json`,
+  );
+  assert.deepEqual(events, [{ patch: "A", index: 1, total: 2 }]);
 });

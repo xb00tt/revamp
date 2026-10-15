@@ -3,6 +3,8 @@ import { isSea } from "node:sea";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_TIMEOUT_MS = 180_000;
+/** A stderr line starting with this carries one JSON progress event from the child; every other line is error text. */
+export const EVENT_PREFIX = "revamp-event ";
 
 export class SandboxError extends Error {}
 
@@ -40,7 +42,11 @@ function childArgs(access: SandboxAccess, entry: string | undefined): string[] {
  * There is no network, no child processes, workers, addons or WASI, and the environment holds only PATH.
  * The job goes in on stdin; the child's stdout must be JSON.
  */
-export function runSandboxed<T>(job: unknown, access: SandboxAccess, o: { entry?: string; timeoutMs?: number } = {}): Promise<T> {
+export function runSandboxed<T>(
+  job: unknown,
+  access: SandboxAccess,
+  o: { entry?: string; timeoutMs?: number; onEvent?: (event: unknown) => void } = {},
+): Promise<T> {
   const timeout = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const args = childArgs(access, o.entry);
   return new Promise((resolve, reject) => {
@@ -51,13 +57,27 @@ export function runSandboxed<T>(job: unknown, access: SandboxAccess, o: { entry?
       killSignal: "SIGKILL",
     });
     const out: Buffer[] = [];
-    const err: Buffer[] = [];
+    const err: string[] = [];
+    let partial = "";
+    const line = (l: string) => {
+      if (!l.startsWith(EVENT_PREFIX)) return void err.push(l);
+      try {
+        o.onEvent?.(JSON.parse(l.slice(EVENT_PREFIX.length)));
+      } catch {
+        err.push(l); // not an event after all: keep it as error text
+      }
+    };
     child.stdout.on("data", (c: Buffer) => out.push(c));
-    child.stderr.on("data", (c: Buffer) => err.push(c));
+    child.stderr.on("data", (c: Buffer) => {
+      const lines = (partial + c.toString()).split("\n");
+      partial = lines.pop()!;
+      lines.forEach(line);
+    });
     child.stdin.on("error", () => {}); // the child may exit before reading all of stdin
     child.on("error", reject);
     child.on("close", (code, signal) => {
-      const stderr = Buffer.concat(err).toString().trim();
+      if (partial) line(partial);
+      const stderr = err.join("\n").trim();
       if (signal) {
         return reject(new SandboxError(`the sandboxed run timed out or was killed (${signal}, limit ${timeout} ms)${stderr ? `: ${stderr}` : ""}`));
       }

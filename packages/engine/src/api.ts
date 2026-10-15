@@ -29,6 +29,19 @@ export interface PatchAppOptions {
   apiBaseUrl?: string;
   fetch?: typeof fetch;
   log?: (line: string) => void;
+  /** Structured progress for front ends that draw it (the GUI); `log` keeps the CLI's lines. */
+  progress?: (event: JobProgress) => void;
+}
+
+export type JobStep = "download" | "extract" | "patch" | "repack" | "install";
+
+/** download carries `percent` when the size is known; patch names the patch starting (`index` of `total`, internal ones included). */
+export interface JobProgress {
+  step: JobStep;
+  percent?: number;
+  patch?: string;
+  index?: number;
+  total?: number;
 }
 
 export interface PatchAppResult {
@@ -88,6 +101,7 @@ export function patchCounts(results: PatchResult[]): { applied: number; total: n
 export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
   const paths = o.paths ?? revampPaths();
   const log = o.log ?? (() => {});
+  const progress = o.progress ?? (() => {});
   const bundlePath = resolve(o.bundlePath);
   const desc = await describe(bundlePath);
   const bundleName = desc.manifest.name;
@@ -127,12 +141,19 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
     const debPath = releasePath(paths, app.id, version, asset);
     log(`Downloading ${asset}…`);
     const url = `${o.releaseBaseUrl ?? "https://github.com"}/${app.release.github}/releases/download/${tag}/${asset}`;
-    const how = await downloadVerified({ url, dest: debPath, sha256, fetch: o.fetch });
+    let percent = -1;
+    const onProgress = (received: number, size: number | undefined) => {
+      const now = size ? Math.floor((received * 100) / size) : -1;
+      if (now > percent) progress({ step: "download", percent: (percent = now) });
+    };
+    progress({ step: "download" });
+    const how = await downloadVerified({ url, dest: debPath, sha256, fetch: o.fetch, onProgress });
     if (how === "replaced") log("The cached download had the wrong SHA-256, so it was downloaded again.");
 
     const staging = newStaging(paths, app.id);
     try {
       log("Extracting…");
+      progress({ step: "extract" });
       await extractDeb(debPath, staging, installSelector(app));
       let exe: Stats | undefined;
       try {
@@ -147,6 +168,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
       const job = await runSandboxed<SandboxPatchOutput>(
         { mode: "patch", bundle: bundlePath, staging, outDir, appId: app.id, version, selection, force: o.force ?? false, stockDesktop },
         { read: [staging, bundlePath], write: [outDir] },
+        { onEvent: (e) => progress({ step: "patch", ...patchEvent(e) }) },
       );
       const base = { appId: app.id, appName: app.name, version, untested, results: job.results, logs: job.logs, dryRun: o.dryRun ?? false, warnings };
       if (job.aborted) return { ...base, installed: false, aborted: job.aborted, exitCode: 1 };
@@ -154,6 +176,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
       if (o.dryRun) return { ...base, installed: false, exitCode };
 
       log("Repacking…");
+      progress({ step: "repack" });
       const asarPath = join(staging, ASAR_PATH);
       const changes = new Map(job.files.map((f) => [f, readFileSync(join(outDir, "files", ...assertAsarPath(f).split("/")))]));
       rmSync(`${asarPath}.new`, { force: true }); // the .deb could have planted a symlink here
@@ -162,6 +185,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
       rmSync(outDir, { recursive: true, force: true });
 
       log("Installing…");
+      progress({ step: "install" });
       const installDir = installStaged({
         paths,
         appId: app.id,
@@ -211,6 +235,12 @@ export async function listPatches(bundlePath: string, appId: string, version?: s
     compatible: p.apps === null || p.apps.some((a) => a.app === app.id && (a.versions === null || a.versions.includes(v))),
   }));
   return { bundle: desc.manifest, app, version: v, listed: Object.hasOwn(app.versions, v), patches };
+}
+
+/** The sandboxed child's "patch started" event, keeping only well-formed fields: the child runs bundle code. */
+function patchEvent(e: unknown): Pick<JobProgress, "patch" | "index" | "total"> {
+  const { patch, index, total } = (e ?? {}) as Record<string, unknown>;
+  return typeof patch === "string" && Number.isInteger(index) && Number.isInteger(total) ? { patch, index: index as number, total: total as number } : {};
 }
 
 /** installDir/** goes to the staging root; the stock desktop file and hicolor PNG icons (regular files only) go to .revamp-meta/. */
