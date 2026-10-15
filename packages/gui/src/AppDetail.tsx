@@ -55,7 +55,7 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
     onRun({
       title: dryRun ? `Dry run: ${name} ${plain(listing.version)}` : `${name}: ${label}`,
       back: `Back to ${name}`,
-      runs: [{ label: app.name, dryRun, call: () => rpc.call<Outcome>("job.patch", params) }],
+      runs: [{ label: name, dryRun, call: () => rpc.call<Outcome>("job.patch", params) }],
     });
   }
 

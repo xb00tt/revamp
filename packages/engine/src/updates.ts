@@ -116,8 +116,13 @@ const isStable = (app: AppInfo, version: string) => Object.hasOwn(app.versions, 
 
 const lastCheckFile = (paths: Paths) => join(paths.state, "last-check.json");
 
+/** The last check's result, or null when there is none or the file can't be read (the next check rewrites it). */
 export function loadLastCheck(paths: Paths): CheckResult | null {
-  return existsSync(lastCheckFile(paths)) ? (JSON.parse(readFileSync(lastCheckFile(paths), "utf8")) as CheckResult) : null;
+  try {
+    return existsSync(lastCheckFile(paths)) ? (JSON.parse(readFileSync(lastCheckFile(paths), "utf8")) as CheckResult) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

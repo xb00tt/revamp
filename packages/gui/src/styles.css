@@ -54,12 +54,15 @@ h3 { font-size: 14px; font-weight: 500; margin: 0 0 6px; }
 .fatal { padding: 24px; }
 .status-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .job { display: flex; flex-direction: column; gap: 10px; height: 100vh; padding: 18px 22px; }
-.job-head { display: flex; align-items: baseline; justify-content: space-between; }
+.job-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex: none; }
+.job-head h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.job-head .muted { font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; }
+.window[hidden] { display: none; }
 .job-now { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.5em; }
 .bar { height: 8px; border-radius: 4px; background: var(--side); overflow: hidden; flex: none; }
 .bar > div { height: 100%; background: var(--accent); transition: width 0.3s; }
 .bar > div.bad { background: var(--danger); }
-.steps { display: flex; gap: 18px; list-style: none; padding: 0; margin: 0; font-size: 13px; flex: none; }
+.steps { display: flex; gap: 18px; list-style: none; padding: 0; margin: 0; font-size: 13px; flex: none; flex-wrap: nowrap; white-space: nowrap; overflow: hidden; }
 .steps .todo { color: var(--muted); }
 .steps .active { color: var(--accent); font-weight: 500; }
 .steps .done { color: var(--ok); }
