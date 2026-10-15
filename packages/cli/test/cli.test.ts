@@ -172,3 +172,13 @@ test("end of input at the trust prompt answers no: exit 1, nothing saved", () =>
   assert.equal(r.stderr, "");
   assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp\n");
 });
+
+test("check and update say so when nothing is installed", () => {
+  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  for (const command of ["check", "update"]) {
+    const r = cli([command], home);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, "No Revamped apps installed.\n");
+  }
+  assert.equal(cli(["update", "hydra"], home).stderr, "revamp: hydra is not installed; install it with revamp patch hydra\n");
+});

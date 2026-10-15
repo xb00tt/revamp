@@ -1,12 +1,11 @@
-import type { BundleSource, InstalledApp, PatchAppResult, PatchListing, PatchStatus, SourceCandidate } from "@revamp/engine";
+import { patchCounts, type BundleSource, type InstalledApp, type PatchAppResult, type PatchListing, type PatchStatus, type SourceCandidate } from "@revamp/engine";
 
 const MARK: Record<PatchStatus, string> = { applied: "✓", failed: "✗", skipped: "–", incompatible: " ", disabled: " " };
 
 export function formatPatchResult(r: PatchAppResult): string {
   const shown = r.results.filter((x) => !x.internal || x.status === "failed");
   // The count is of the patches users choose; a failed internal patch is listed, but as the reason others were skipped.
-  const ran = shown.filter((x) => !x.internal && x.status !== "disabled" && x.status !== "incompatible");
-  const applied = ran.filter((x) => x.status === "applied").length;
+  const { applied, total } = patchCounts(r.results);
   const outcome = r.aborted
     ? `nothing installed: ${r.aborted}`
     : r.installed
@@ -14,7 +13,7 @@ export function formatPatchResult(r: PatchAppResult): string {
       : r.dryRun
         ? "dry run, nothing installed"
         : "not installed";
-  const lines = [`${r.appName} ${r.version}${r.untested ? " (untested)" : ""}: ${applied}/${ran.length} patches apply (${outcome})`];
+  const lines = [`${r.appName} ${r.version}${r.untested ? " (untested)" : ""}: ${applied}/${total} patches apply (${outcome})`];
   for (const x of shown) {
     const tag = x.status === "disabled" || x.status === "incompatible" ? ` [${x.status}]` : "";
     lines.push(`  ${MARK[x.status]} ${x.name}${x.required ? " (required)" : ""}${tag}`);

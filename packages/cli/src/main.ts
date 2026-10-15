@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { isSea } from "node:sea";
 import { fileURLToPath } from "node:url";
@@ -5,6 +6,8 @@ import { parseArgs } from "node:util";
 import {
   addSource,
   bundleForApp,
+  checkMessage,
+  checkUpdates,
   listInstalls,
   listPatches,
   loadSources,
@@ -14,6 +17,7 @@ import {
   revampPaths,
   rollback,
   uninstall,
+  updateApp,
   type Paths,
 } from "@revamp/engine";
 import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandidate, formatSources, printable } from "./format.ts";
@@ -32,6 +36,8 @@ const USAGE = `Usage:
   revamp sources add <owner/repo | https-url-of-bundle.json | file.mjs> [--yes]
   revamp sources list
   revamp sources remove <source>
+  revamp check [--notify]
+  revamp update [<app>] [--force]
 
 Without --bundle, an app's bundle comes from the first source that has it.`;
 
@@ -97,6 +103,7 @@ async function main(argv: string[]): Promise<number> {
       bundle: { type: "string" },
       "dry-run": { type: "boolean" },
       yes: { type: "boolean" },
+      notify: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -146,6 +153,29 @@ async function main(argv: string[]): Promise<number> {
       uninstall(paths, id);
       print(`Removed Revamped ${id}.`);
       return 0;
+    }
+    case "check": {
+      const r = await checkUpdates({ paths, log: (line) => printError(line) });
+      for (const line of r.sources) print(line);
+      if (r.apps.length === 0) print("No Revamped apps installed.");
+      for (const c of r.apps) {
+        const text = checkMessage(c);
+        print(text);
+        // notify-send is optional: without it, the line is still in the timer's journal.
+        if (values.notify && c.status !== "up to date") spawnSync("notify-send", ["Revamp", text], { stdio: "ignore" });
+      }
+      return r.apps.some((c) => c.status === "failed") ? 1 : 0;
+    }
+    case "update": {
+      const ids = appId ? [appId] : listInstalls(paths).filter((a) => a.current).map((a) => a.appId);
+      if (ids.length === 0) print("No Revamped apps installed.");
+      let code = 0;
+      for (const id of ids) {
+        const u = await updateApp(id, { paths, force: values.force, log: (line) => printError(line) });
+        print(u.result ? formatPatchResult(u.result) : `${u.appName} ${u.current} is up to date`);
+        code = Math.max(code, u.result?.exitCode ?? 0);
+      }
+      return code;
     }
     case "sources":
       return sources(paths, positionals[1], positionals[2], values.yes ?? false);

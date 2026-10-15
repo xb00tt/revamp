@@ -63,7 +63,7 @@ const fill = (template: string, version: string) => template.replaceAll("{versio
 const META = ".revamp-meta";
 
 /** The app a job or listing is about, after checking the bundle's engine floor and the app's bundle-supplied names. */
-function findApp(desc: BundleDescription, appId: string): AppInfo {
+export function findApp(desc: BundleDescription, appId: string): AppInfo {
   const bundleName = desc.manifest.name;
   if (compareVersions(desc.manifest.minEngine, ENGINE_VERSION) > 0) {
     throw new Error(`bundle "${bundleName}" needs Revamp ${desc.manifest.minEngine} or newer (this is ${ENGINE_VERSION})`);
@@ -73,6 +73,16 @@ function findApp(desc: BundleDescription, appId: string): AppInfo {
   assertSafeName("app id", app.id);
   assertSafeRelativePath("executable", app.executable);
   return app;
+}
+
+/** A job's tally, as the report header and update checks show it: named patches that ran (not disabled or incompatible). */
+export function patchCounts(results: PatchResult[]): { applied: number; total: number; failing: string[] } {
+  const ran = results.filter((x) => !x.internal && x.status !== "disabled" && x.status !== "incompatible");
+  return {
+    applied: ran.filter((x) => x.status === "applied").length,
+    total: ran.length,
+    failing: ran.filter((x) => x.status !== "applied").map((x) => x.name),
+  };
 }
 
 export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
