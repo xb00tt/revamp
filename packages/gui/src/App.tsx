@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { AppUpdate } from "@revamp/engine";
 import { AppDetail } from "./AppDetail.tsx";
 import { badgeFor, checkFor, pendingUpdates, plain, type AppsList } from "./model.ts";
 import { notifyDone } from "./platform.ts";
@@ -40,11 +41,17 @@ export function App({ rpc }: { rpc: Rpc }) {
     task("Updating…", async () => {
       const failed: string[] = [];
       for (const appId of pendingUpdates(list!)) {
-        setBusy(`Updating ${list!.apps.find((a) => a.appId === appId)!.name}…`);
-        await rpc.call("job.update", { appId }).catch((e: Error) => failed.push(`${appId}: ${e.message}`));
+        const name = list!.apps.find((a) => a.appId === appId)!.name;
+        setBusy(`Updating ${name}… Keep Revamp open until this finishes.`);
+        try {
+          const { result, report } = (await rpc.call("job.update", { appId })) as AppUpdate & { report?: string };
+          if (result && (result.aborted || result.exitCode !== 0)) failed.push(`${name}: ${report?.split("\n")[0] ?? result.aborted ?? "some patches didn't apply"}`);
+        } catch (e) {
+          failed.push(`${appId}: ${(e as Error).message}`);
+        }
       }
       if (failed.length) setError(failed.join("\n"));
-      await notifyDone(failed.length ? `Update all finished with ${failed.length} failed` : "Update all finished");
+      await notifyDone(failed.length ? `Update all finished; ${failed.length} ${failed.length === 1 ? "app" : "apps"} had problems` : "Update all finished");
     });
 
   if (stopped) return <p className="fatal">{plain(stopped)}</p>;

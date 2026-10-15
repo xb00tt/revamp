@@ -27,10 +27,20 @@ export function badgeFor(app: AppRow, check: AppCheck | undefined): Badge {
   return { kind: "ok", label: "Up to date" };
 }
 
-/** The last check for an app, only if it was made against the version installed now. */
-export const checkFor = (list: AppsList, appId: string) => {
+/**
+ * The last check for an app, only if it was made against the version installed now, and brought up to date with what
+ * happened since: a skip or its undo, or a re-patch (which settles "new patches").
+ */
+export const checkFor = (list: AppsList, appId: string): AppCheck | undefined => {
   const found = list.lastCheck?.apps.find((a) => a.appId === appId);
-  return found && found.current === list.apps.find((a) => a.appId === appId)?.current ? found : undefined;
+  const app = list.apps.find((a) => a.appId === appId);
+  if (!found || found.current !== app?.current) return undefined;
+  const skipped = list.skipped[appId];
+  if (found.status === "update" && found.latest === skipped) return { ...found, status: "skipped" };
+  if (found.status === "skipped" && found.latest !== skipped) return { ...found, status: "update" };
+  const installedAt = app.versions.find((v) => v.version === app.current)?.installedAt;
+  if (found.status === "patches" && installedAt && Date.parse(installedAt) > Date.parse(list.lastCheck!.checkedAt)) return undefined;
+  return found;
 };
 
 /** Bundle-supplied text for the screen: no bidi overrides, zero-width or control characters (newline and tab stay). */

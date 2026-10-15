@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Revamp is "Morphe for Linux Electron apps": it downloads an official release `.deb` (Hydra, Heroic), verifies its SHA-256, edits the built JavaScript inside `app.asar` at rest, and installs "<App> (Revamped)" next to the stock app in `~/.local/share/revamp`. TypeScript on Node 26, npm workspaces: `packages/{sdk,engine,cli}` and `bundles/official`.
+Revamp is "Morphe for Linux Electron apps": it downloads an official release `.deb` (Hydra, Heroic), verifies its SHA-256, edits the built JavaScript inside `app.asar` at rest, and installs "<App> (Revamped)" next to the stock app in `~/.local/share/revamp`. TypeScript on Node 26, npm workspaces: `packages/{sdk,engine,cli,gui}` (the GUI is Tauri v2 + React) and `bundles/official`.
 
 **Source of truth:** `docs/superpowers/specs/2026-10-14-revamp-v1-design.md` (binding design, milestones in §13) and one implementation plan per milestone in `docs/superpowers/plans/`. Read the spec section and the latest plan before changing behavior. Plan code blocks were run on a fresh clone before hand-off: implementers copy them exactly, and a failure usually means a typo or the wrong Node.
 

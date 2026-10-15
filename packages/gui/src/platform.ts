@@ -27,7 +27,7 @@ export async function connect(): Promise<Transport> {
 
 /** A desktop notification when a job ends while the window is in the background. */
 export async function notifyDone(body: string): Promise<void> {
-  if (!document.hidden) return;
+  if (!document.hidden && document.hasFocus()) return;
   try {
     if (inTauri()) {
       const n = await import("@tauri-apps/plugin-notification");

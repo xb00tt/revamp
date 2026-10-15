@@ -68,8 +68,9 @@ export function runSandboxed<T>(
       }
     };
     child.stdout.on("data", (c: Buffer) => out.push(c));
-    child.stderr.on("data", (c: Buffer) => {
-      const lines = (partial + c.toString()).split("\n");
+    child.stderr.setEncoding("utf8"); // whole characters, even when a chunk ends inside one
+    child.stderr.on("data", (c: string) => {
+      const lines = (partial + c).split("\n");
       partial = lines.pop()!;
       lines.forEach(line);
     });

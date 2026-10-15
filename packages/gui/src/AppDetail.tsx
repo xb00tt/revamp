@@ -112,7 +112,11 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
       {check?.status === "update" && (
         <div className="banner warning">
           New release: {name} {plain(check.latest)} is out.{" "}
-          {check.listed ? `A dry run says ${check.applied}/${check.total} patches apply.` : `It isn't in your bundle yet; a dry run says ${check.applied}/${check.total} patches apply.`}
+          {plain(
+            `${check.listed ? "" : check.experimental ? "It's experimental in your bundle; " : "It isn't in your bundle yet; "}${check.listed ? "A dry run" : "a dry run"} ${
+              check.aborted ? `stopped: ${check.aborted}` : `says ${check.applied}/${check.total} patches apply.`
+            }`,
+          )}
           <div className="row-actions">
             <button onClick={() => setVersion(check.latest)}>Review {plain(check.latest)}</button>
             <button onClick={() => skip(check.latest!)}>Skip {plain(check.latest)}</button>
@@ -182,7 +186,7 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
             <button disabled={progress !== null} onClick={() => run(true)}>
               Dry run
             </button>
-            <span className="muted">{progress ?? (outcome ? plain(outcome.report.split("\n")[0]) : "")}</span>
+            <span className="muted">{progress ? `${progress} Keep Revamp open until this finishes.` : (outcome ? plain(outcome.report.split("\n")[0]) : "")}</span>
           </div>
         </>
       )}
