@@ -43,6 +43,16 @@ export const checkFor = (list: AppsList, appId: string): AppCheck | undefined =>
   return found;
 };
 
+/**
+ * The new-release banner's second sentence. A check that found the release skipped ran no dry run, so after the skip
+ * is undone there are no counts until the next check.
+ */
+export function releaseNote(c: AppCheck): string {
+  const lead = c.listed ? "" : c.experimental ? "It's experimental in your bundle; " : "It isn't in your bundle yet; ";
+  const dryRun = c.aborted ? `a dry run stopped: ${c.aborted}` : c.total === undefined ? "check now for a dry run." : `a dry run says ${c.applied}/${c.total} patches apply.`;
+  return plain(lead ? lead + dryRun : dryRun[0].toUpperCase() + dryRun.slice(1));
+}
+
 /** Bundle-supplied text for the screen: no bidi overrides, zero-width or control characters (newline and tab stay). */
 export const plain = (text = "") => text.replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2069\uFEFF]/g, "");
 

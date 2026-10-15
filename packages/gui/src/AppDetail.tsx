@@ -1,7 +1,7 @@
 import type { AppCheck, PatchAppResult } from "@revamp/engine";
 import { useEffect, useState } from "react";
 import type { JobRequest } from "./JobView.tsx";
-import { initialToggles, optionFlags, plain, selectionFlags, type AppRow, type PatchRow, type Selection } from "./model.ts";
+import { initialToggles, optionFlags, plain, releaseNote, selectionFlags, type AppRow, type PatchRow, type Selection } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
 
 interface Listing {
@@ -80,11 +80,7 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
       {check?.status === "update" && (
         <div className="banner warning">
           New release: {name} {plain(check.latest)} is out.{" "}
-          {plain(
-            `${check.listed ? "" : check.experimental ? "It's experimental in your bundle; " : "It isn't in your bundle yet; "}${check.listed ? "A dry run" : "a dry run"} ${
-              check.aborted ? `stopped: ${check.aborted}` : `says ${check.applied}/${check.total} patches apply.`
-            }`,
-          )}
+          {releaseNote(check)}
           <div className="row-actions">
             <button onClick={() => setVersion(check.latest)}>Review {plain(check.latest)}</button>
             <button onClick={() => skip(check.latest!)}>Skip {plain(check.latest)}</button>

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AppCheck } from "@revamp/engine";
-import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, initialToggles, jobEvent, optionFlags, type PatchRow, patchName, pendingUpdates, plain, progressLabel, reclaimable, selectionFlags, startJob } from "../src/model.ts";
+import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, initialToggles, jobEvent, optionFlags, type PatchRow, patchName, pendingUpdates, plain, progressLabel, reclaimable, releaseNote, selectionFlags, startJob } from "../src/model.ts";
 
 const app = (appId: string, current: string | null): AppRow => ({ appId, name: appId, current, versions: [] });
 const check = (appId: string, status: AppCheck["status"], latest = "1.1.0"): AppCheck => ({ appId, appName: appId, current: "1.0.0", latest, status });
@@ -74,6 +74,15 @@ test("a skip made after the check turns the update into a skipped release, and u
   const undone = listWith(a, check("a", "skipped"), {});
   assert.equal(checkFor(undone, "a")?.status, "update");
   assert.deepEqual(pendingUpdates(undone), ["a"]);
+  assert.equal(releaseNote(checkFor(undone, "a")!), "It isn't in your bundle yet; check now for a dry run."); // a skipped check ran none
+});
+
+test("the release banner says what the dry run found", () => {
+  const c = (extra: Partial<AppCheck>): AppCheck => ({ ...check("a", "update"), listed: true, applied: 5, total: 6, ...extra });
+  assert.deepEqual(
+    [c({}), c({ listed: false }), c({ listed: false, experimental: true, applied: undefined, total: undefined }), c({ aborted: "no space left" })].map(releaseNote),
+    ["A dry run says 5/6 patches apply.", "It isn't in your bundle yet; a dry run says 5/6 patches apply.", "It's experimental in your bundle; check now for a dry run.", "A dry run stopped: no space left"],
+  );
 });
 
 test("a re-patch after the check clears its new-patches notice", () => {
