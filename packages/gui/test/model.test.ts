@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AppCheck } from "@revamp/engine";
-import { badgeFor, formatBytes, initialToggles, optionFlags, pendingUpdates, progressLabel, reclaimable, selectionFlags, type AppRow, type AppsList, type PatchRow } from "../src/model.ts";
+import { badgeFor, checkFor, plain, formatBytes, initialToggles, optionFlags, pendingUpdates, progressLabel, reclaimable, selectionFlags, type AppRow, type AppsList, type PatchRow } from "../src/model.ts";
 
 const app = (appId: string, current: string | null): AppRow => ({ appId, name: appId, current, versions: [] });
 const check = (appId: string, status: AppCheck["status"], latest = "1.1.0"): AppCheck => ({ appId, appName: appId, current: "1.0.0", latest, status });
@@ -47,4 +47,14 @@ test("progress labels, sizes and what storage can free", () => {
   assert.equal(progressLabel({ step: "repack" }), "Repacking…");
   assert.deepEqual([formatBytes(900), formatBytes(48 * 1024), formatBytes(147 * 1024 ** 2), formatBytes(1.07 * 1024 ** 3)], ["900 B", "48 KB", "147 MB", "1.1 GB"]);
   assert.equal(reclaimable([{ id: "a", kind: "release", label: "", bytes: 5 }, { id: "b", kind: "bundle", label: "", bytes: 7, keep: "pinned" }, { id: "c", kind: "install", label: "", bytes: 3 }]), 8);
+});
+
+test("a check only counts for the version it was made against", () => {
+  const list: AppsList = { apps: [app("a", "1.1.0"), app("b", "1.0.0")], lastCheck: { checkedAt: "", sources: [], apps: [check("a", "update"), check("b", "update")] }, skipped: {} };
+  assert.equal(checkFor(list, "a"), undefined);
+  assert.equal(checkFor(list, "b")?.status, "update");
+});
+
+test("plain() drops what could spoof bundle text and keeps newlines", () => {
+  assert.equal(plain("Tr\u202Eust\u200B\u0007 me\u2028\u0085\u007F\u2066\uFEFF!\n\tok"), "Trust me!\n\tok");
 });

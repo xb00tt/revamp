@@ -5,8 +5,9 @@ import { RpcError, rpcClient, type Transport } from "../src/rpc.ts";
 function fake() {
   const sent: string[] = [];
   let deliver: (line: string) => void = () => {};
-  const transport: Transport = { send: (line) => void sent.push(line), onLine: (l) => void (deliver = l) };
-  return { transport, sent, deliver: (message: object) => deliver(JSON.stringify(message)) };
+  let close: (reason: string) => void = () => {};
+  const transport: Transport = { send: (line) => void sent.push(line), onLine: (l) => void (deliver = l), onClose: (l) => void (close = l) };
+  return { transport, sent, deliver: (message: object) => deliver(JSON.stringify(message)), close: (reason: string) => close(reason) };
 }
 
 test("calls get their own id, and replies settle the matching call", async () => {
@@ -34,4 +35,17 @@ test("notifications reach listeners until they unsubscribe; stray lines are igno
   stop();
   t.deliver({ jsonrpc: "2.0", method: "job.progress", params: { id: 1, step: "repack" } });
   assert.deepEqual(heard, [["job.progress", { id: 1, step: "extract" }]]);
+});
+
+test("a stopped serve rejects pending calls and every later call", async () => {
+  const t = fake();
+  const rpc = rpcClient(t.transport);
+  const heard: string[] = [];
+  rpc.onClose((reason) => heard.push(reason));
+  const pending = rpc.call("job.patch");
+  t.close("exit code 1");
+  const stopped = (e: unknown) => e instanceof RpcError && e.code === -32001 && e.message === "revamp serve stopped: exit code 1";
+  await assert.rejects(pending, stopped);
+  await assert.rejects(rpc.call("apps.list"), stopped);
+  assert.deepEqual(heard, ["exit code 1"]);
 });

@@ -1,5 +1,6 @@
 import type { BundleSource } from "@revamp/engine";
 import { useEffect, useState } from "react";
+import { plain } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
 
 interface Preview {
@@ -75,15 +76,15 @@ export function Sources({ rpc, onChanged }: { rpc: Rpc; onChanged: () => Promise
         {preview && (
           <div className="preview">
             <div>
-              {preview.manifest.name} {preview.manifest.version} by {preview.manifest.author} <span className="muted">({preview.manifest.license})</span>
+              {plain(preview.manifest.name)} {plain(preview.manifest.version)} by {plain(preview.manifest.author)} <span className="muted">({plain(preview.manifest.license)})</span>
             </div>
-            <div className="muted">Apps: {preview.apps.map((a) => `${a.name} ${a.versions.join(", ")}`).join("; ")}</div>
+            <div className="muted">Apps: {plain(preview.apps.map((a) => `${a.name} ${a.versions.join(", ")}`).join("; "))}</div>
             <div className="muted">SHA-256 to pin</div>
             <code className="hash">{preview.source.sha256}</code>
-            {preview.changelog && <pre className="report">{preview.changelog}</pre>}
+            {preview.changelog && <pre className="report">{plain(preview.changelog)}</pre>}
             {overlap.length > 0 && (
               <p className="muted warn">
-                {overlap.map((a) => a.name).join(", ")} already come{overlap.length === 1 ? "s" : ""} from another source. The first source added wins, so this one adds nothing for{" "}
+                {plain(overlap.map((a) => a.name).join(", "))} already come{overlap.length === 1 ? "s" : ""} from another source. The first source added wins, so this one adds nothing for{" "}
                 {overlap.length === 1 ? "it" : "them"} while that source stays.
               </p>
             )}
@@ -97,14 +98,14 @@ export function Sources({ rpc, onChanged }: { rpc: Rpc; onChanged: () => Promise
           </div>
         )}
       </div>
-      {message && <pre className={`banner ${message.error ? "danger" : ""}`}>{message.text}</pre>}
+      {message && <pre className={`banner ${message.error ? "danger" : ""}`}>{plain(message.text)}</pre>}
       {sources.map((s, i) => (
         <div className="card" key={s.location}>
           <h3>
             {s.location} <span className="pill">{s.kind}</span> {i === 0 && <span className="pill accent">first</span>}
           </h3>
           <p className="muted">
-            {s.name} {s.version} · apps: {s.apps.join(", ")}
+            {plain(s.name)} {plain(s.version)} · apps: {plain(s.apps.join(", "))}
           </p>
           <div className="muted">Pinned SHA-256</div>
           <code className="hash">{s.sha256}</code>

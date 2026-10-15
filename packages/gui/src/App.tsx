@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppDetail } from "./AppDetail.tsx";
-import { badgeFor, checkFor, pendingUpdates, type AppsList } from "./model.ts";
+import { badgeFor, checkFor, pendingUpdates, plain, type AppsList } from "./model.ts";
 import { notifyDone } from "./platform.ts";
 import type { Rpc } from "./rpc.ts";
 import { Sources } from "./Sources.tsx";
@@ -13,6 +13,7 @@ export function App({ rpc }: { rpc: Rpc }) {
   const [view, setView] = useState<View | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stopped, setStopped] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const next = await rpc.call<AppsList>("apps.list");
@@ -20,6 +21,7 @@ export function App({ rpc }: { rpc: Rpc }) {
     setView((v) => v ?? (next.apps[0] ? { kind: "app", appId: next.apps[0].appId } : { kind: "sources" }));
   }, [rpc]);
   useEffect(() => void refresh().catch((e: Error) => setError(e.message)), [refresh]);
+  useEffect(() => rpc.onClose((reason) => setStopped(`Revamp stopped working: ${reason}. Close and reopen the window.`)), [rpc]);
 
   const task = async (label: string, work: () => Promise<void>) => {
     setBusy(label);
@@ -45,7 +47,8 @@ export function App({ rpc }: { rpc: Rpc }) {
       await notifyDone(failed.length ? `Update all finished with ${failed.length} failed` : "Update all finished");
     });
 
-  if (!list || !view) return <p className="fatal">{error ?? "Starting Revamp…"}</p>;
+  if (stopped) return <p className="fatal">{plain(stopped)}</p>;
+  if (!list || !view) return <p className="fatal">{plain(error ?? "Starting Revamp…")}</p>;
   const pending = pendingUpdates(list);
   const selected = view.kind === "app" ? list.apps.find((a) => a.appId === view.appId) : undefined;
   return (
@@ -63,7 +66,7 @@ export function App({ rpc }: { rpc: Rpc }) {
           const badge = badgeFor(a, checkFor(list, a.appId));
           return (
             <button key={a.appId} className={`nav ${view.kind === "app" && view.appId === a.appId ? "sel" : ""}`} onClick={() => setView({ kind: "app", appId: a.appId })}>
-              <span className="nav-title">{a.name}</span>
+              <span className="nav-title">{plain(a.name)}</span>
               <span className="muted">{a.current ?? ""}</span>
               <span className={`pill ${badge.kind}`}>{badge.label}</span>
             </button>
@@ -84,7 +87,7 @@ export function App({ rpc }: { rpc: Rpc }) {
         </div>
       </aside>
       <main className="main">
-        {error && <pre className="banner danger">{error}</pre>}
+        {error && <pre className="banner danger">{plain(error)}</pre>}
         {view.kind === "sources" && <Sources rpc={rpc} onChanged={refresh} />}
         {view.kind === "storage" && <Storage rpc={rpc} />}
         {selected && <AppDetail key={selected.appId} rpc={rpc} app={selected} check={checkFor(list, selected.appId)} onChanged={refresh} />}

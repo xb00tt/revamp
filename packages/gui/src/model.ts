@@ -27,7 +27,14 @@ export function badgeFor(app: AppRow, check: AppCheck | undefined): Badge {
   return { kind: "ok", label: "Up to date" };
 }
 
-export const checkFor = (list: AppsList, appId: string) => list.lastCheck?.apps.find((a) => a.appId === appId);
+/** The last check for an app, only if it was made against the version installed now. */
+export const checkFor = (list: AppsList, appId: string) => {
+  const found = list.lastCheck?.apps.find((a) => a.appId === appId);
+  return found && found.current === list.apps.find((a) => a.appId === appId)?.current ? found : undefined;
+};
+
+/** Bundle-supplied text for the screen: no bidi overrides, zero-width or control characters (newline and tab stay). */
+export const plain = (text = "") => text.replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2069\uFEFF]/g, "");
 
 /** Apps that "Update all" would touch: a newer release or new patches, never a skipped release. */
 export const pendingUpdates = (list: AppsList): string[] =>

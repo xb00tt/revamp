@@ -1,6 +1,6 @@
 import type { AppCheck, JobProgress, PatchAppResult, PatchResult } from "@revamp/engine";
 import { useEffect, useState } from "react";
-import { initialToggles, optionFlags, progressLabel, selectionFlags, type AppRow, type PatchRow, type Selection } from "./model.ts";
+import { initialToggles, optionFlags, plain, progressLabel, selectionFlags, type AppRow, type PatchRow, type Selection } from "./model.ts";
 import { notifyDone } from "./platform.ts";
 import type { Rpc } from "./rpc.ts";
 
@@ -28,6 +28,7 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
   const [progress, setProgress] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rollingBack, setRollingBack] = useState(false);
 
   useEffect(() => {
     setListing(null);
@@ -60,9 +61,9 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
         dryRun,
       });
       setOutcome(out);
-      const head = out.report.split("\n")[0];
-      await notifyDone(head);
+      const head = plain(out.report.split("\n")[0]);
       if (!dryRun) await onChanged();
+      await notifyDone(head);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -72,21 +73,27 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
   }
 
   const skip = (v: string | null) => rpc.call("check.skip", { appId: app.appId, version: v }).then(onChanged, (e: Error) => setError(e.message));
-  const rollback = () => rpc.call("install.rollback", { appId: app.appId }).then(onChanged, (e: Error) => setError(e.message));
+  // install.rollback switches to the newest installed version that isn't current, so only that row offers it.
+  const rollbackTo = app.versions.find((v) => v.version !== app.current)?.version;
+  const rollback = () => {
+    setRollingBack(true);
+    return rpc.call("install.rollback", { appId: app.appId }).then(onChanged, (e: Error) => setError(e.message)).finally(() => setRollingBack(false));
+  };
+  const name = plain(app.name);
 
   if (outcome && (outcome.result.aborted || outcome.result.results.some(failedOrSkipped))) {
     return (
       <section>
         <h2>
-          {app.name} {outcome.result.version}: {outcome.result.aborted ? "the job stopped" : "some patches didn't apply"}
+          {name} {plain(outcome.result.version)}: {outcome.result.aborted ? "the job stopped" : "some patches didn't apply"}
         </h2>
-        <p className="muted">{outcome.result.installed ? `Installed anyway, without the patches marked ✗ or –.` : `Nothing changed in your installed ${app.name}.`}</p>
-        <pre className="report">{outcome.report}</pre>
+        <p className="muted">{outcome.result.installed ? `Installed anyway, without the patches marked ✗ or –.` : `Nothing changed in your installed ${name}.`}</p>
+        <pre className="report">{plain(outcome.report)}</pre>
         <div className="row-actions">
           <button className="primary" onClick={() => setOutcome(null)}>
             Back to patch selection
           </button>
-          <button onClick={() => void navigator.clipboard.writeText(outcome.report)}>Copy report</button>
+          <button onClick={() => void navigator.clipboard.writeText(plain(outcome.report))}>Copy report</button>
         </div>
         <p className="muted">Send the copied report to the bundle's author: it names the patch, the step that failed and the file.</p>
       </section>
@@ -98,32 +105,32 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
   const label = !app.current ? `Patch and install ${listing?.version ?? ""}` : isUpdate ? `Update to ${listing?.version}` : check?.status === "patches" ? `Re-patch ${app.current}` : `Patch ${listing?.version ?? ""}`;
   return (
     <section>
-      <h2>{app.name} (Revamped)</h2>
+      <h2>{name} (Revamped)</h2>
       <p className="muted">
-        {current ? `${current.version} · installed ${new Date(current.installedAt).toLocaleString()} · patched with ${current.bundle.name} ${current.bundle.version}` : "Not installed yet"}
+        {current ? `${plain(current.version)} · installed ${new Date(current.installedAt).toLocaleString()} · patched with ${plain(current.bundle.name)} ${plain(current.bundle.version)}` : "Not installed yet"}
       </p>
       {check?.status === "update" && (
         <div className="banner warning">
-          New release: {app.name} {check.latest} is out.{" "}
+          New release: {name} {plain(check.latest)} is out.{" "}
           {check.listed ? `A dry run says ${check.applied}/${check.total} patches apply.` : `It isn't in your bundle yet; a dry run says ${check.applied}/${check.total} patches apply.`}
           <div className="row-actions">
-            <button onClick={() => setVersion(check.latest)}>Review {check.latest}</button>
-            <button onClick={() => skip(check.latest!)}>Skip {check.latest}</button>
+            <button onClick={() => setVersion(check.latest)}>Review {plain(check.latest)}</button>
+            <button onClick={() => skip(check.latest!)}>Skip {plain(check.latest)}</button>
           </div>
         </div>
       )}
       {check?.status === "skipped" && (
         <div className="banner">
-          Skipped {check.latest}. You'll hear about the next release. <button className="link" onClick={() => skip(null)}>Undo</button>
+          Skipped {plain(check.latest)}. You'll hear about the next release. <button className="link" onClick={() => skip(null)}>Undo</button>
         </div>
       )}
       {check?.status === "patches" && (
         <div className="banner accent">
-          New patches: {check.bundle!.name} {check.bundle!.version} {check.newPatches?.length ? `adds ${check.newPatches.join(", ")} for` : "is out for"} your {app.name} {app.current}. Re-patch to use it.
-          {check.bundle!.changelog && <pre className="report">{check.bundle!.changelog}</pre>}
+          New patches: {plain(check.bundle!.name)} {plain(check.bundle!.version)} {check.newPatches?.length ? `adds ${plain(check.newPatches.join(", "))} for` : "is out for"} your {name} {app.current}. Re-patch to use it.
+          {check.bundle!.changelog && <pre className="report">{plain(check.bundle!.changelog)}</pre>}
         </div>
       )}
-      {error && <pre className="banner danger">{error}</pre>}
+      {error && <pre className="banner danger">{plain(error)}</pre>}
       {listing && (
         <>
           <label className="field">
@@ -131,7 +138,7 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
             <select value={listing.version} disabled={progress !== null} onChange={(e) => setVersion(e.target.value)}>
               {versions.map((v) => (
                 <option key={v} value={v}>
-                  {v} — {listing.app.versions[v] ? (listing.app.versions[v].experimental ? "experimental in your bundle" : "in your bundle") : "not in your bundle yet"}
+                  {plain(v)} — {listing.app.versions[v] ? (listing.app.versions[v].experimental ? "experimental in your bundle" : "in your bundle") : "not in your bundle yet"}
                 </option>
               ))}
             </select>
@@ -147,22 +154,22 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
                     <input type="checkbox" checked={!!toggles[p.name]} disabled={p.required || progress !== null} onChange={(e) => setToggles({ ...toggles, [p.name]: e.target.checked })} aria-label={p.name} />
                     <div>
                       <div>
-                        {p.name} {p.required && <span className="pill">required</span>}
+                        {plain(p.name)} {p.required && <span className="pill">required</span>}
                         {check?.newPatches?.includes(p.name) && <span className="pill patches">new</span>}
                       </div>
-                      <div className="muted">{p.description}</div>
+                      <div className="muted">{plain(p.description)}</div>
                       {Object.entries(p.options).map(([key, o]) => {
                         const value = values[p.name]?.[key] ?? o.default;
                         const set = (v: unknown) => setValues({ ...values, [p.name]: { ...values[p.name], [key]: v } });
                         return (
                           <label key={key} className="option muted">
                             {o.type === "bool" ? <input type="checkbox" checked={value === true} onChange={(e) => set(e.target.checked)} /> : null}
-                            {o.title}
+                            {plain(o.title)}
                             {o.type !== "bool" && <input value={String(value ?? "")} onChange={(e) => set(o.type === "number" ? Number(e.target.value) : e.target.value)} />}
                           </label>
                         );
                       })}
-                      {r && <div className={`status ${r.status}`}>{r.status === "applied" ? "✓ applied" : r.status}</div>}
+                      {r && <div className={`status ${r.status}`}>{r.status === "applied" ? "✓ applied" : plain(r.status)}</div>}
                     </div>
                   </li>
                 );
@@ -175,7 +182,7 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
             <button disabled={progress !== null} onClick={() => run(true)}>
               Dry run
             </button>
-            <span className="muted">{progress ?? (outcome ? outcome.report.split("\n")[0] : "")}</span>
+            <span className="muted">{progress ?? (outcome ? plain(outcome.report.split("\n")[0]) : "")}</span>
           </div>
         </>
       )}
@@ -186,9 +193,9 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
             {app.versions.map((v) => (
               <li key={v.version}>
                 <span>
-                  {v.version} <span className="muted">· {new Date(v.installedAt).toLocaleString()} · {v.bundle.name} {v.bundle.version}{v.untested ? " · untested" : ""}</span>
+                  {plain(v.version)} <span className="muted">· {new Date(v.installedAt).toLocaleString()} · {plain(v.bundle.name)} {plain(v.bundle.version)}{v.untested ? " · untested" : ""}</span>
                 </span>
-                {v.version === app.current ? <span className="pill accent">current</span> : <button onClick={rollback}>Roll back</button>}
+                {v.version === app.current ? <span className="pill accent">current</span> : v.version === rollbackTo && <button disabled={rollingBack || progress !== null} onClick={rollback}>Roll back</button>}
               </li>
             ))}
           </ul>
