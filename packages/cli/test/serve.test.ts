@@ -108,3 +108,18 @@ test("revamp serve speaks over stdin and stdout and exits when stdin closes", as
     { jsonrpc: "2.0", id: 2, result: [] },
   ]);
 });
+
+test("revamp serve finishes its work when the window closes its end of stdout", async () => {
+  const home = mkdtempSync(join(tmpdir(), "revamp-serve-epipe-"));
+  const child = spawn(process.execPath, [MAIN, "serve"], { env: { ...process.env, HOME: home, XDG_DATA_HOME: "", XDG_CONFIG_HOME: "", XDG_CACHE_HOME: "", XDG_STATE_HOME: "" } });
+  const exited = new Promise((r) => child.on("exit", r));
+  let err = "";
+  child.stderr.on("data", (c: Buffer) => (err += c));
+  child.stdin.write('{"jsonrpc":"2.0","id":1,"method":"storage.list"}\n');
+  child.stdout.destroy();
+  await new Promise((r) => setTimeout(r, 500)); // let the reply hit the closed pipe
+  child.stdin.end();
+  const code = await exited;
+  assert.doesNotMatch(err, /Unhandled 'error' event/);
+  assert.equal(code, 0);
+});

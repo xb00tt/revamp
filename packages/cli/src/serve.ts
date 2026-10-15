@@ -178,12 +178,13 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
 /** Serves until stdin closes, then waits for running requests to finish. */
 export function serve(o: ServeOptions, input: NodeJS.ReadableStream = process.stdin, output: NodeJS.WritableStream = process.stdout): Promise<void> {
   const handle = createHandler(o);
+  output.on("error", () => {}); // the window closed its end (EPIPE): keep finishing the jobs it started
   const send = (message: object) => void output.write(`${JSON.stringify(message)}\n`);
   const running = new Set<Promise<void>>();
   const lines = createInterface({ input });
   lines.on("line", (line) => {
     if (!line.trim()) return;
-    const job = handle(line, (method, params) => send({ jsonrpc: "2.0", method, params })).then((response) => response && send(response));
+    const job = handle(line, (method, params) => send({ jsonrpc: "2.0", method, params })).then((response) => response && send(response)).catch((e) => o.log(`serve: ${e instanceof Error ? e.message : String(e)}`));
     running.add(job);
     void job.finally(() => running.delete(job));
   });
