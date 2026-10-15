@@ -61,14 +61,22 @@ function versionFromTag(template: string, tag: string): string | undefined {
   return fits ? tag.slice(before.length, tag.length - after.length) : undefined;
 }
 
-export async function latestRelease(app: AppInfo, o: Pick<UpdateOptions, "apiBaseUrl" | "fetch"> = {}): Promise<string> {
+export interface LatestRelease {
+  version: string;
+  /** Each asset's name and the digest GitHub publishes for it, so a check notices a download swapped on GitHub. */
+  assets: string[];
+}
+
+export async function latestRelease(app: AppInfo, o: Pick<UpdateOptions, "apiBaseUrl" | "fetch"> = {}): Promise<LatestRelease> {
   const url = `${o.apiBaseUrl ?? "https://api.github.com"}/repos/${app.release.github}/releases/latest`;
   const res = await (o.fetch ?? fetch)(url, { headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" } });
   if (!res.ok) throw new Error(`GET ${url} failed: HTTP ${res.status}`);
-  const tag = ((await res.json().catch(() => undefined)) as { tag_name?: unknown } | undefined)?.tag_name;
+  const release = (await res.json().catch(() => undefined)) as { tag_name?: unknown; assets?: unknown } | undefined;
+  const tag = release?.tag_name;
   const version = typeof tag === "string" ? versionFromTag(app.release.tag, tag) : undefined;
   if (!version) throw new Error(`the latest ${app.name} release on GitHub has tag ${JSON.stringify(tag)}, which doesn't fit "${app.release.tag}"`);
-  return version;
+  const assets = Array.isArray(release?.assets) ? (release.assets as Array<{ name?: unknown; digest?: unknown } | null>).map((a) => `${a?.name} ${a?.digest}`).sort() : [];
+  return { version, assets };
 }
 
 /** An installed app's bundle (from the sources) and its newest release. */
@@ -78,7 +86,8 @@ async function newest(appId: string, o: UpdateOptions) {
   for (const w of choice.warnings) o.log?.(`Warning: ${w}`);
   const description = await describe(choice.bundlePath);
   const app = findApp(description, appId);
-  return { bundlePath: choice.bundlePath, source: choice.source, description, app, latest: await latestRelease(app, o) };
+  const release = await latestRelease(app, o);
+  return { bundlePath: choice.bundlePath, source: choice.source, description, app, latest: release.version, assets: release.assets };
 }
 
 const receiptOf = (installed: InstalledApp) => installed.versions.find((v) => v.version === installed.current)?.receipt;
@@ -127,8 +136,8 @@ export function loadLastCheck(paths: Paths): CheckResult | null {
 
 /**
  * Refreshes the sources, then for each installed app looks up its newest release and, if it is newer than
- * `current`, downloads, verifies and dry-runs it with the saved selection. A dry run whose basis (engine, release,
- * bundle and selection) is unchanged since the last check is reused rather than run again. The result goes to
+ * `current`, downloads, verifies and dry-runs it with the saved selection. A dry run whose basis (engine, release and
+ * GitHub's digests for it, bundle and selection) is unchanged since the last check is reused rather than run again. The result goes to
  * last-check.json.
  */
 export async function checkUpdates(o: UpdateOptions): Promise<CheckResult> {
@@ -141,12 +150,12 @@ export async function checkUpdates(o: UpdateOptions): Promise<CheckResult> {
     o.log?.(`Checking ${installed.appId} ${installed.current}…`);
     const check: AppCheck = { appId: installed.appId, appName: installed.appId, current: installed.current, status: "failed" };
     try {
-      const { bundlePath, source, description, app, latest } = await newest(installed.appId, o);
+      const { bundlePath, source, description, app, latest, assets } = await newest(installed.appId, o);
       const listed = isStable(app, latest);
       const experimental = Object.hasOwn(app.versions, latest) && !listed;
       Object.assign(check, { appName: app.name, latest, listed, ...(experimental && { experimental }), status: "up to date" });
       if (compareVersions(latest, installed.current) > 0) {
-        const basis = JSON.stringify([ENGINE_VERSION, latest, source.sha256, loadSelection(o.paths, app.id)]);
+        const basis = JSON.stringify([ENGINE_VERSION, latest, assets, source.sha256, loadSelection(o.paths, app.id)]);
         const before = previous?.apps.find((a) => a.appId === app.id && a.status === "update" && a.basis === basis);
         if (skipped[app.id] === latest) check.status = "skipped";
         else if (before) {

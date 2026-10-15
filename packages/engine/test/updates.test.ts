@@ -17,10 +17,10 @@ import { demoDeb, writeDemoBundle } from "./helpers/demo.ts";
 async function setup(list3 = false) {
   const deb = await demoDeb();
   const sha256 = createHash("sha256").update(deb).digest("hex");
-  const state = { latest: "v1.0.0" };
+  const state = { latest: "v1.0.0", digest: `sha256:${sha256}` };
   const server = createServer((req, res) => {
     if (/^\/example\/demo\/releases\/download\/v([13])\.0\.0\/demo_\1\.0\.0_amd64\.deb$/.test(req.url!)) res.end(deb);
-    else if (req.url === "/repos/example/demo/releases/latest") res.end(JSON.stringify({ tag_name: state.latest }));
+    else if (req.url === "/repos/example/demo/releases/latest") res.end(JSON.stringify({ tag_name: state.latest, assets: [{ name: "demo_3.0.0_amd64.deb", digest: state.digest }] }));
     else if (req.url === "/repos/example/demo/releases/tags/v3.0.0") res.end(JSON.stringify({ assets: [{ name: "demo_3.0.0_amd64.deb", digest: `sha256:${sha256}` }] }));
     else {
       res.statusCode = 404;
@@ -161,4 +161,9 @@ test("the next check reuses an unchanged dry run; a changed selection runs it ag
   const third = (await checkUpdates(o)).apps[0];
   assert.ok(logs.includes("Extracting…"));
   assert.notEqual(third.basis, first.basis);
+
+  s.state.digest = `sha256:${"f".repeat(64)}`; // the release's download was replaced on GitHub
+  logs.length = 0;
+  await checkUpdates(o);
+  assert.ok(logs.includes("Extracting…"));
 });
