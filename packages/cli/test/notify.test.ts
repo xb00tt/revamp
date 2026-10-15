@@ -48,9 +48,11 @@ test("a notification that can't be shown, or a window that can't start, is logge
   const timeout = Object.assign(new Error("spawnSync notify-send ETIMEDOUT"), { code: "ETIMEDOUT" });
   notifyCheck(["x"], "/gui", log, () => ({ error: timeout, status: null, stdout: "" }));
   notifyCheck(["x"], "/gui", log, (command) => (command === "notify-send" ? { status: 0, stdout: "open\n" } : { status: 1, stderr: "Failed to connect to bus" }));
+  notifyCheck(["x"], undefined, log, () => ({ status: null, signal: "SIGKILL" }));
   assert.deepEqual(logs, [
     "Couldn't show the notification: notify-send isn't installed",
     "Couldn't show the notification: notify-send exited with 1: no notification server",
     "Couldn't open Revamp: systemd-run exited with 1: Failed to connect to bus",
+    "Couldn't show the notification: notify-send was stopped by SIGKILL",
   ]);
 });

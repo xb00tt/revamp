@@ -81,6 +81,7 @@ test("rollback switches current to the other kept version", () => {
   const p = newPaths();
   install(p, "1.0.0", "2026-10-14T10:00:00.000Z");
   assert.throws(() => rollback(p, "demo"), /no previous version/);
+  assert.equal(existsSync(join(root(p), ".lock")), false, "a failed rollback lets go of the lock");
   install(p, "1.1.0", "2026-10-14T11:00:00.000Z");
   assert.equal(rollback(p, "demo"), "1.0.0");
   assert.equal(readlinkSync(join(root(p), "current")), "1.0.0");

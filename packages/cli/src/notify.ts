@@ -3,7 +3,7 @@
 // the check (a timer's service is stopped, with its processes, when it ends).
 import { spawnSync } from "node:child_process";
 
-type Result = { stdout?: string | Buffer | null; stderr?: string | Buffer | null; status?: number | null; error?: Error };
+type Result = { stdout?: string | Buffer | null; stderr?: string | Buffer | null; status?: number | null; signal?: string | null; error?: Error };
 type Run = (command: string, args: string[], options: { encoding: "utf8"; timeout?: number }) => Result;
 
 /** Notification servers read the body as markup, so &, < and > in bundle text are escaped to show as written. */
@@ -15,7 +15,7 @@ function failure(command: string, r: Result): string | undefined {
   if (code === "ETIMEDOUT") return undefined;
   if (code === "ENOENT") return `${command} isn't installed`;
   if (r.error) return `${command}: ${r.error.message}`;
-  if (r.status !== 0) return `${command} exited with ${r.status}${String(r.stderr ?? "").trim() ? `: ${String(r.stderr).trim()}` : ""}`;
+  if (r.status !== 0) return `${command} ${r.signal ? `was stopped by ${r.signal}` : `exited with ${r.status}`}${String(r.stderr ?? "").trim() ? `: ${String(r.stderr).trim()}` : ""}`;
 }
 
 /** Shows the notification; what goes wrong goes to `log` (the timer's journal), where the check's lines are too. */

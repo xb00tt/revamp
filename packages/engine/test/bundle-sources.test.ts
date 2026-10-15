@@ -200,6 +200,21 @@ test("a source added or removed while a refresh fetches survives the moved pin",
   assert.deepEqual(loadSources(s.paths).map((x) => [x.kind, x.version]), [["github", "1.1.0"], ["file", "0.9.0"]]);
 });
 
+test("a refresh doesn't overwrite a pin the user set while it fetched", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  s.publish("1.0.0");
+  const old = (await prepareSource(s.paths, "example/bundles", s.o)).source;
+  addSource(s.paths, old);
+  s.publish("1.1.0");
+  const readded = { ...old, version: "0.5.0", sha256: "c".repeat(64) }; // the user removed and re-added it meanwhile
+  const refresh = refreshSources(s.paths, s.o);
+  removeSource(s.paths, old.location);
+  addSource(s.paths, readded);
+  await refresh;
+  assert.deepEqual(loadSources(s.paths), [readded]);
+});
+
 test("a refresh with nothing new doesn't rewrite sources.json", async (t) => {
   const s = await setup();
   t.after(s.close);

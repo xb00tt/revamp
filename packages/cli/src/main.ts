@@ -155,8 +155,9 @@ async function main(argv: string[]): Promise<number> {
       if (values.notify) {
         const gui = join(paths.data, "gui", "revamp-gui");
         const news = r.apps.filter((c) => c.status !== "up to date" && c.status !== "skipped").map((c) => printable(checkMessage(c)));
-        // Run by hand in a terminal, the check doesn't wait up to ten minutes for a click: no Open Revamp button then.
-        notifyCheck(news, existsSync(gui) && !process.stdout.isTTY ? gui : undefined, printError);
+        // Run by hand from a terminal (the timer's stdin is /dev/null), the check doesn't wait up to ten minutes for a
+        // click: no Open Revamp button then.
+        notifyCheck(news, existsSync(gui) && !process.stdin.isTTY ? gui : undefined, printError);
       }
       return r.apps.some((c) => c.status === "failed") ? 1 : 0;
     }

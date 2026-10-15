@@ -182,21 +182,22 @@ export function removeSource(paths: Paths, location: string): BundleSource {
  */
 export async function refreshSources(paths: Paths, o: SourceFetchOptions = {}): Promise<string[]> {
   const lines: string[] = [];
-  const moved = new Map<string, BundleSource>(); // location → its new pin
+  const moved = new Map<string, { from: string; to: BundleSource }>(); // location → the pin it moved from, and the new one
   for (const s of loadSources(paths)) {
     if (s.kind !== "github") continue;
     try {
       const j = await fetchBundleJson(s, o);
       if (j.version === s.version) continue;
       const next = (await prepareSource(paths, s.location, o)).source;
-      moved.set(s.location, next);
+      moved.set(s.location, { from: s.sha256, to: next });
       lines.push(`${s.location}: "${s.name}" ${s.version} → ${next.version}${j.changelog ? `\n${j.changelog}` : ""}`);
     } catch (e) {
       lines.push(`${s.location}: not refreshed, still using ${s.version}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  // Read the list again: a `sources add/remove` (the window, the CLI) may have landed while this one was fetching.
-  if (moved.size) saveSources(paths, loadSources(paths).map((s) => moved.get(s.location) ?? s));
+  // Read the list again: a `sources add/remove` (the window, the CLI) may have landed while this one was fetching, and
+  // a source re-added meanwhile with another pin keeps that pin.
+  if (moved.size) saveSources(paths, loadSources(paths).map((s) => (moved.get(s.location)?.from === s.sha256 ? moved.get(s.location)!.to : s)));
   return lines;
 }
 
