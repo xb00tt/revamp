@@ -181,23 +181,22 @@ export function removeSource(paths: Paths, location: string): BundleSource {
  * A source that can't be refreshed keeps its pin; the returned lines say what changed or failed.
  */
 export async function refreshSources(paths: Paths, o: SourceFetchOptions = {}): Promise<string[]> {
-  const sources = loadSources(paths);
   const lines: string[] = [];
-  let moved = false;
-  for (const [i, s] of sources.entries()) {
+  const moved = new Map<string, BundleSource>(); // location → its new pin
+  for (const s of loadSources(paths)) {
     if (s.kind !== "github") continue;
     try {
       const j = await fetchBundleJson(s, o);
       if (j.version === s.version) continue;
       const next = (await prepareSource(paths, s.location, o)).source;
-      sources[i] = next;
-      moved = true;
+      moved.set(s.location, next);
       lines.push(`${s.location}: "${s.name}" ${s.version} → ${next.version}${j.changelog ? `\n${j.changelog}` : ""}`);
     } catch (e) {
       lines.push(`${s.location}: not refreshed, still using ${s.version}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  if (moved) saveSources(paths, sources); // a `sources add/remove` that landed meanwhile is only lost when a pin moved
+  // Read the list again: a `sources add/remove` (the window, the CLI) may have landed while this one was fetching.
+  if (moved.size) saveSources(paths, loadSources(paths).map((s) => moved.get(s.location) ?? s));
   return lines;
 }
 

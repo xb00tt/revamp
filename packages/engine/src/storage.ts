@@ -51,21 +51,26 @@ export function storageUsage(paths: Paths): StorageItem[] {
   return items;
 }
 
-/** Removes one item `storageUsage` lists without a `keep` reason; anything else is refused. */
+/**
+ * Removes one item `storageUsage` lists without a `keep` reason; anything else is refused. A download or install goes
+ * under its app's lock, and its keep reason is decided again there, so no job is using it and no job or rollback can
+ * make it current in between.
+ */
 export function removeStorageItem(paths: Paths, id: string): void {
-  const item = storageUsage(paths).find((i) => i.id === id);
-  if (!item) throw new Error(`nothing called "${id}" in Revamp's storage`);
-  if (item.keep) throw new Error(`${item.label} is in use (${item.keep}), so it stays`);
-  const [kind, rest] = [item.kind, id.slice(item.kind.length + 1)];
-  if (kind === "release") rmSync(join(paths.cache, "releases", ...rest.split("/")), { recursive: true, force: true });
-  else if (kind === "bundle") rmSync(join(paths.cache, "bundles", `${rest}.mjs`), { force: true });
-  else {
-    const [app, version] = rest.split("/");
-    const unlock = lockApp(paths, app); // never under a running job for the same app
-    try {
-      rmSync(join(appDir(paths, app), version), { recursive: true, force: true });
-    } finally {
-      unlock();
-    }
+  const find = () => storageUsage(paths).find((i) => i.id === id);
+  const listed = find(); // only a listed id reaches a path
+  if (!listed) throw new Error(`nothing called "${id}" in Revamp's storage`);
+  const rest = id.slice(listed.kind.length + 1);
+  const [app, version] = rest.split("/");
+  const unlock = listed.kind === "bundle" ? () => {} : lockApp(paths, app);
+  try {
+    const item = find();
+    if (!item) throw new Error(`nothing called "${id}" in Revamp's storage`);
+    if (item.keep) throw new Error(`${item.label} is in use (${item.keep}), so it stays`);
+    if (item.kind === "release") rmSync(join(paths.cache, "releases", app, version), { recursive: true, force: true });
+    else if (item.kind === "bundle") rmSync(join(paths.cache, "bundles", `${rest}.mjs`), { force: true });
+    else rmSync(join(appDir(paths, app), version), { recursive: true, force: true });
+  } finally {
+    unlock();
   }
 }

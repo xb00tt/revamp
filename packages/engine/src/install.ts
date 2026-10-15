@@ -192,11 +192,16 @@ export function listInstalls(paths: Paths): InstalledApp[] {
 
 export function rollback(paths: Paths, appId: string): string {
   const root = appDir(paths, appId);
-  const current = currentVersion(root);
-  const previous = installedVersions(root).find((v) => v.version !== current);
-  if (!previous) throw new Error(`no previous version of ${appId} to roll back to`);
-  pointCurrent(root, previous.version);
-  return previous.version;
+  const unlock = lockApp(paths, appId); // never while a job installs or storage removes a version
+  try {
+    const current = currentVersion(root);
+    const previous = installedVersions(root).find((v) => v.version !== current);
+    if (!previous) throw new Error(`no previous version of ${appId} to roll back to`);
+    pointCurrent(root, previous.version);
+    return previous.version;
+  } finally {
+    unlock();
+  }
 }
 
 export function uninstall(paths: Paths, appId: string): void {

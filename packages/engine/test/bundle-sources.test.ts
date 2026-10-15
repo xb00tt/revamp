@@ -182,6 +182,24 @@ test("a file source whose original was edited or deleted still uses the pinned c
   assert.deepEqual((await bundleForApp(s.paths, "demo", s.o))?.warnings, [note]);
 });
 
+test("a source added or removed while a refresh fetches survives the moved pin", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  s.publish("1.0.0");
+  addSource(s.paths, (await prepareSource(s.paths, "example/bundles", s.o)).source);
+  const url = (await prepareSource(s.paths, `${s.base}/url/bundle.json`, s.o)).source;
+  addSource(s.paths, url);
+  const file = join(s.root, "local.mjs");
+  writeDemoBundle(file, { sha256: "a".repeat(64), version: "0.9.0" });
+  const local = (await prepareSource(s.paths, file, s.o)).source;
+  s.publish("1.1.0");
+  const refresh = refreshSources(s.paths, s.o); // has read the list and is now fetching
+  removeSource(s.paths, url.location);
+  addSource(s.paths, local);
+  assert.equal((await refresh).length, 1);
+  assert.deepEqual(loadSources(s.paths).map((x) => [x.kind, x.version]), [["github", "1.1.0"], ["file", "0.9.0"]]);
+});
+
 test("a refresh with nothing new doesn't rewrite sources.json", async (t) => {
   const s = await setup();
   t.after(s.close);

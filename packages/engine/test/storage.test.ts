@@ -56,3 +56,12 @@ test("only items without a keep reason can be removed", () => {
   assert.throws(() => removeStorageItem(paths, "install:demo/1.0.0"), /^Error: demo 1\.0\.0 is in use \(current\), so it stays$/);
   assert.throws(() => removeStorageItem(paths, "release:../../etc"), /^Error: nothing called "release:\.\.\/\.\.\/etc" in Revamp's storage$/);
 });
+
+test("a download or install isn't removed while a job for its app runs", () => {
+  const paths = setup();
+  writeFileSync(join(paths.data, "apps/demo/.lock"), String(process.pid)); // a live job's lock
+  for (const id of ["install:demo/0.9.0", "release:demo/0.8.0"]) assert.throws(() => removeStorageItem(paths, id), /^Error: another Revamp job for demo is running/);
+  assert.deepEqual([existsSync(join(paths.data, "apps/demo/0.9.0")), existsSync(join(paths.cache, "releases/demo/0.8.0"))], [true, true]);
+  removeStorageItem(paths, `bundle:${OLD}`); // bundles belong to no app
+  assert.equal(existsSync(join(paths.data, "apps/demo/.lock")), true, "the job's lock stays");
+});

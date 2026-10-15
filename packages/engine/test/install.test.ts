@@ -85,6 +85,9 @@ test("rollback switches current to the other kept version", () => {
   assert.equal(rollback(p, "demo"), "1.0.0");
   assert.equal(readlinkSync(join(root(p), "current")), "1.0.0");
   assert.equal(rollback(p, "demo"), "1.1.0");
+  writeFileSync(join(root(p), ".lock"), String(process.pid)); // a job for demo is running
+  assert.throws(() => rollback(p, "demo"), /another Revamp job for demo is running/);
+  assert.equal(readlinkSync(join(root(p), "current")), "1.1.0");
 });
 
 test("listInstalls and uninstall", () => {
