@@ -50,6 +50,12 @@ test(
       `revamp: the timer runs the installed revamp (${join(env.HOME, ".local/share/revamp/bin/revamp")}): run npm run install:cli, then revamp timer enable\n`,
     );
 
+    // The GUI runs the SEA as `revamp serve`: one JSON-RPC message per line.
+    const served = spawnSync(SEA, ["serve"], { cwd: dir, env, encoding: "utf8", input: '{"jsonrpc":"2.0","id":1,"method":"patches.list","params":{"appId":"hydra"}}\n' });
+    assert.equal(served.status, 0, served.stderr);
+    const listed = JSON.parse(served.stdout).result;
+    assert.deepEqual([listed.app.name, listed.version, listed.bundle.name], ["Hydra", "4.1.6", "Revamp official"]);
+
     const dryRun = revamp("patch", "hydra", "--dry-run");
     assert.equal(dryRun.status, 0, dryRun.stderr);
     assert.match(dryRun.stdout, /^Hydra 4\.1\.6: 6\/6 patches apply \(dry run, nothing installed\)$/m);

@@ -2,11 +2,9 @@ import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { isSea } from "node:sea";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import {
   addSource,
-  bundleForApp,
   checkMessage,
   checkUpdates,
   listInstalls,
@@ -22,6 +20,8 @@ import {
   type Paths,
 } from "@revamp/engine";
 import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandidate, formatSources, printable } from "./format.ts";
+import { bundleFor } from "./bundle-for.ts";
+import { serve } from "./serve.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
 
 // Bundles supply names, notes and messages, and the trust prompt follows them: print nothing that moves the cursor.
@@ -41,6 +41,7 @@ const USAGE = `Usage:
   revamp check [--notify]
   revamp update [<app>] [--force]
   revamp timer enable|disable
+  revamp serve        JSON-RPC 2.0 on stdin/stdout, for the GUI
 
 Without --bundle, an app's bundle comes from the first source that has it.`;
 
@@ -51,18 +52,6 @@ async function confirm(question: string): Promise<boolean> {
   const answer = await Promise.race([rl.question(`${question} [y/N] `).catch(() => ""), closed]);
   rl.close();
   return /^y(es)?$/i.test(answer.trim());
-}
-
-/** --bundle, else the first bundle source with the app (spec §7.2), else, running from the repo, the repo build. */
-async function bundleFor(paths: Paths, appId: string, flag: string | undefined): Promise<string> {
-  if (flag) return flag;
-  const choice = await bundleForApp(paths, appId);
-  if (choice) {
-    for (const w of choice.warnings) printError(`Warning: ${w}`);
-    return choice.bundlePath;
-  }
-  if (!isSea()) return fileURLToPath(new URL("../../../bundles/official/dist/official.mjs", import.meta.url));
-  throw new Error(`no bundle source has "${appId}"; add one, e.g. revamp sources add xb00tt/revamp`);
 }
 
 async function sources(paths: Paths, sub: string | undefined, location: string | undefined, yes: boolean): Promise<number> {
@@ -128,7 +117,7 @@ async function main(argv: string[]): Promise<number> {
     case "patch": {
       const result = await patchApp({
         appId: needApp(),
-        bundlePath: await bundleFor(paths, needApp(), values.bundle),
+        bundlePath: await bundleFor(paths, needApp(), values.bundle, printError),
         version: values.version,
         force: values.force,
         enable: values.enable,
@@ -142,7 +131,7 @@ async function main(argv: string[]): Promise<number> {
       return result.exitCode;
     }
     case "patches":
-      print(formatPatchList(await listPatches(await bundleFor(paths, needApp(), values.bundle), needApp(), values.version)));
+      print(formatPatchList(await listPatches(await bundleFor(paths, needApp(), values.bundle, printError), needApp(), values.version)));
       return 0;
     case "list":
       print(formatInstalls(listInstalls(paths)));
@@ -187,6 +176,9 @@ async function main(argv: string[]): Promise<number> {
       }
       return code;
     }
+    case "serve":
+      await serve({ paths, log: printError });
+      return 0;
     case "timer": {
       const units = join(dirname(paths.config), "systemd", "user");
       if (appId === "enable") {
