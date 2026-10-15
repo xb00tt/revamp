@@ -66,7 +66,29 @@ export interface PatchRow {
   default: boolean;
   required: boolean;
   compatible: boolean;
+  /** Shown for a forced version although the bundle doesn't mark the patch for it (see forVersion). */
+  untested?: boolean;
   options: Record<string, { type: string; title: string; description: string; default: unknown }>;
+}
+
+/** What patches.list returns for one app version. */
+export interface Listing {
+  app: { name: string; versions: Record<string, { experimental?: boolean }> };
+  version: string;
+  listed: boolean;
+  bundle: { name: string; version: string };
+  patches: PatchRow[];
+  selection: Selection;
+}
+
+/**
+ * The listing as the window shows it. A version the bundle doesn't list, or lists as experimental, is patched with
+ * --force, and then the engine tries every patch the selection turns on (as the check's dry run did). So no patch is
+ * hidden there: one the bundle doesn't mark for this version shows as untested on it.
+ */
+export function forVersion(l: Listing): Listing {
+  const forced = !l.listed || !!l.app.versions[l.version]?.experimental;
+  return forced ? { ...l, patches: l.patches.map((p) => (p.compatible ? p : { ...p, compatible: true, untested: true })) } : l;
 }
 
 export interface Selection {

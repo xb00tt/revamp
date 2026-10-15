@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AppCheck } from "@revamp/engine";
-import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, initialToggles, jobEvent, optionFlags, type PatchRow, patchName, pendingUpdates, plain, progressLabel, reclaimable, releaseNote, selectionFlags, startJob } from "../src/model.ts";
+import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, forVersion, initialToggles, jobEvent, optionFlags, type Listing, type PatchRow, patchName, pendingUpdates, plain, progressLabel, reclaimable, releaseNote, selectionFlags, startJob } from "../src/model.ts";
 
 const app = (appId: string, current: string | null): AppRow => ({ appId, name: appId, current, versions: [] });
 const check = (appId: string, status: AppCheck["status"], latest = "1.1.0"): AppCheck => ({ appId, appName: appId, current: "1.0.0", latest, status });
@@ -158,4 +158,20 @@ test("finishing a job lists every named patch, notes and the summary", () => {
   assert.deepEqual([upToDate.ok, upToDate.summary, upToDate.lines.at(-1)?.text], [true, "Heroic 2.22.4 is up to date", "Heroic 2.22.4 is up to date"]);
   const failed = finishJob(startJob(false, 0), { error: "revamp serve stopped: crashed" }, 5);
   assert.deepEqual([failed.ok, failed.summary, failed.lines.at(-1)?.kind], [false, "revamp serve stopped: crashed", "fail"]);
+});
+
+test("a forced version shows every patch, marking those its bundle doesn't list for it as untested", () => {
+  const row = (name: string, compatible: boolean) => ({ name, description: "", default: true, required: false, compatible, options: {} });
+  const listing = (version: string): Listing => ({
+    app: { name: "Heroic", versions: { "2.22.3": {}, "2.23.0": { experimental: true } } },
+    version,
+    listed: version !== "2.22.4",
+    bundle: { name: "b", version: "1" },
+    patches: [row("Disable self-update", true), row("Hide Deals link", version === "2.22.3")],
+    selection: { enable: [], disable: [], options: {} },
+  });
+  assert.deepEqual(forVersion(listing("2.22.3")), listing("2.22.3"));
+  for (const v of ["2.22.4", "2.23.0"]) {
+    assert.deepEqual(forVersion(listing(v)).patches.map((p) => [p.name, p.compatible, p.untested]), [["Disable self-update", true, undefined], ["Hide Deals link", true, true]]);
+  }
 });

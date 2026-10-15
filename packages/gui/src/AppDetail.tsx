@@ -1,17 +1,8 @@
 import type { AppCheck, PatchAppResult } from "@revamp/engine";
 import { useEffect, useState } from "react";
 import type { JobRequest } from "./JobView.tsx";
-import { initialToggles, optionFlags, plain, releaseNote, selectionFlags, type AppRow, type PatchRow, type Selection } from "./model.ts";
+import { forVersion, initialToggles, optionFlags, plain, releaseNote, selectionFlags, type AppRow, type Listing } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
-
-interface Listing {
-  app: { name: string; versions: Record<string, { experimental?: boolean }> };
-  version: string;
-  listed: boolean;
-  bundle: { name: string; version: string };
-  patches: PatchRow[];
-  selection: Selection;
-}
 
 interface Outcome {
   result: PatchAppResult;
@@ -28,7 +19,8 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
 
   useEffect(() => {
     setListing(null);
-    rpc.call<Listing>("patches.list", { appId: app.appId, ...(version && { version }) }).then((l) => {
+    rpc.call<Listing>("patches.list", { appId: app.appId, ...(version && { version }) }).then((answer) => {
+      const l = forVersion(answer);
       setListing(l);
       setVersion(l.version);
       setToggles(initialToggles(l.patches, l.selection));
@@ -82,7 +74,11 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
           New release: {name} {plain(check.latest)} is out.{" "}
           {releaseNote(check)}
           <div className="row-actions">
-            <button onClick={() => setVersion(check.latest)}>Review {plain(check.latest)}</button>
+            {listing?.version === check.latest ? (
+              <span className="muted">Showing {plain(check.latest)} below</span>
+            ) : (
+              <button onClick={() => setVersion(check.latest)}>Review {plain(check.latest)}</button>
+            )}
             <button onClick={() => skip(check.latest!)}>Skip {plain(check.latest)}</button>
           </div>
         </div>
@@ -123,6 +119,7 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
                       <div>
                         {plain(p.name)} {p.required && <span className="pill">required</span>}
                         {check?.newPatches?.includes(p.name) && <span className="pill patches">new</span>}
+                        {p.untested && <span className="pill">untested on {plain(listing.version)}</span>}
                       </div>
                       <div className="muted">{plain(p.description)}</div>
                       {Object.entries(p.options).map(([key, o]) => {
