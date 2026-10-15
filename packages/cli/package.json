@@ -4,5 +4,8 @@
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
+  "scripts": {
+    "build": "node scripts/build-sea.ts"
+  },
   "dependencies": { "@revamp/engine": "*" }
 }

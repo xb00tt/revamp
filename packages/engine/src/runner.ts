@@ -9,7 +9,7 @@ import { asarStore } from "./sources.ts";
 
 function loadBundle(path: string): BundleModule {
   // require(esm): import() of files on disk is unavailable inside a Node 26 SEA, and require works in both modes.
-  const mod = createRequire(import.meta.url)(path);
+  const mod = createRequire(path)(path);
   if (typeof mod?.manifest?.name !== "string" || !Array.isArray(mod.apps) || !Array.isArray(mod.patches)) {
     throw new Error(`${path} is not a Revamp bundle (it needs manifest, apps and patches exports)`);
   }
@@ -17,6 +17,8 @@ function loadBundle(path: string): BundleModule {
 }
 
 async function main(): Promise<string> {
+  // The SEA runs itself as the runner, so `revamp --sandbox-runner` must not run bundle code unconfined.
+  if (!process.permission) throw new Error("the sandbox runner only runs under Node's permission model");
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
   const job = JSON.parse(Buffer.concat(chunks).toString("utf8")) as RunnerJob;

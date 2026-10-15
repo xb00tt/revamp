@@ -2,12 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BundleDescription, SandboxPatchOutput } from "../src/job.ts";
-import { runSandboxed, SandboxError } from "../src/sandbox.ts";
+import { nodeOptions, runSandboxed, SandboxError } from "../src/sandbox.ts";
 import { writeDemoApp, writeDemoBundle } from "./helpers/demo.ts";
 
 const PROBE = fileURLToPath(new URL("./fixtures/sandbox-probe.mjs", import.meta.url));
@@ -109,4 +110,18 @@ test("a file that isn't a bundle is reported", async () => {
     runSandboxed({ mode: "describe", bundle: bad }, { read: [bad], write: [] }),
     (e) => e instanceof SandboxError && /not a Revamp bundle/.test(e.message),
   );
+});
+
+test("nodeOptions quotes values so Node reads them back unchanged", () => {
+  const value = 'C:\\a b/"c"';
+  assert.equal(nodeOptions(["--permission", `--title=${value}`]), '--permission --title="C:\\\\a b/\\"c\\""');
+  const r = spawnSync(process.execPath, ["-p", "process.title"], { encoding: "utf8", env: { NODE_OPTIONS: nodeOptions([`--title=${value}`]) } });
+  assert.equal(r.stdout.trim(), value, r.stderr);
+});
+
+test("the runner refuses to run outside the permission model", () => {
+  const runner = fileURLToPath(new URL("../src/runner.ts", import.meta.url));
+  const r = spawnSync(process.execPath, [runner], { input: "{}", encoding: "utf8" });
+  assert.equal(r.status, 1);
+  assert.equal(r.stderr, "the sandbox runner only runs under Node's permission model");
 });

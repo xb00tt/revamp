@@ -14,7 +14,8 @@
     "test": "node --test \"packages/*/test/*.test.ts\" \"bundles/*/test/*.test.ts\"",
     "test:integration": "npm run build -w @revamp/bundle-official && REVAMP_INTEGRATION=1 node --test \"test/integration/*.test.ts\"",
     "typecheck": "tsc -p . && tsc -p bundles/official/src/hydra/extension",
-    "revamp": "node packages/cli/src/main.ts"
+    "revamp": "node packages/cli/src/main.ts",
+    "install:cli": "npm run build -w @revamp/cli && node packages/cli/scripts/install.ts"
   },
   "devDependencies": {
     "@electron/asar": "^4.3.1",

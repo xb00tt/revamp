@@ -4,7 +4,8 @@
   "type": "module",
   "license": "GPL-3.0-only",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./runner": "./src/runner.ts"
   },
   "dependencies": {
     "@revamp/sdk": "*",

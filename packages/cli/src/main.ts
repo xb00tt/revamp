@@ -4,8 +4,8 @@ import { parseArgs } from "node:util";
 import { listInstalls, listPatches, patchApp, revampPaths, rollback, uninstall } from "@revamp/engine";
 import { formatInstalls, formatPatchList, formatPatchResult } from "./format.ts";
 
-// M1 runs from the repo; M4 replaces this with bundle sources.
-const DEFAULT_BUNDLE = fileURLToPath(new URL("../../../bundles/official/dist/official.mjs", import.meta.url));
+// Running from the repo, the bundle defaults to the repo build. A function, because a SEA has no import.meta.url.
+const defaultBundle = () => fileURLToPath(new URL("../../../bundles/official/dist/official.mjs", import.meta.url));
 
 const USAGE = `Usage:
   revamp patch <app> [--version <v>] [--force] [--enable <patch>]... [--disable <patch>]...
@@ -49,7 +49,7 @@ async function main(argv: string[]): Promise<number> {
     case "patch": {
       const result = await patchApp({
         appId: needApp(),
-        bundlePath: values.bundle ?? DEFAULT_BUNDLE,
+        bundlePath: values.bundle ?? defaultBundle(),
         version: values.version,
         force: values.force,
         enable: values.enable,
@@ -63,7 +63,7 @@ async function main(argv: string[]): Promise<number> {
       return result.exitCode;
     }
     case "patches":
-      console.log(formatPatchList(await listPatches(values.bundle ?? DEFAULT_BUNDLE, needApp(), values.version)));
+      console.log(formatPatchList(await listPatches(values.bundle ?? defaultBundle(), needApp(), values.version)));
       return 0;
     case "list":
       console.log(formatInstalls(listInstalls(paths)));
