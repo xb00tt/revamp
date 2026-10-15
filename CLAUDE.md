@@ -8,27 +8,31 @@ Revamp is "Morphe for Linux Electron apps": it downloads an official release `.d
 
 ## Commands
 
-Node 26 is installed only at `~/.local/node-26`; every command needs it first (`.npmrc` has `engine-strict=true`):
+Node 26 (`~/.local/node-26`) and Rust (`~/.cargo`, for the GUI's Tauri shell) are installed per-user only; every command needs them first (`.npmrc` has `engine-strict=true`):
 
 ```bash
-export PATH="$HOME/.local/node-26/bin:$PATH"
+export PATH="$HOME/.cargo/bin:$HOME/.local/node-26/bin:$PATH"
 npm test                                    # all unit tests (node --test, TS runs natively, no network)
-npm run typecheck                           # two tsc --noEmit projects: the repo, then the TSX extension
+npm run typecheck                           # three tsc --noEmit projects: the repo, the TSX extension, the GUI
 node --test packages/engine/test/api.test.ts                       # one test file
 node --test --test-name-pattern='unlisted version' packages/engine/test/api.test.ts   # one test
 npm run build -w @revamp/bundle-official    # scripts/build.ts: the extensions, then dist/official.mjs, patches.json, bundle.json
 npm run build -w @revamp/cli                # packages/cli/dist/revamp, the single executable (SEA)
 npm run install:cli                         # builds the SEA and installs it; ~/.local/bin/revamp links to it
+npm run dev -w @revamp/gui                  # the window's screens in a browser at localhost:1420, on `revamp serve` from source
+npm run tauri:dev -w @revamp/gui            # the real window (Tauri) with reload; tauri:build makes target/release/revamp-gui
+npm run gui:install                         # installs the CLI, builds the window, puts "Revamp" in the menu
 npm run test:integration                    # builds the bundle, patches the REAL releases into temp homes, tests the SEA
 npm run revamp -- patches hydra             # CLI from source; also: patch <app> [--version v --force]
                                             #   [--enable/--disable "<patch>"] [--option "<patch>:<key>=<value>"]
                                             #   [--bundle file] [--dry-run], list, rollback <app>, uninstall <app>,
                                             #   sources add/list/remove, check [--notify], update [app] [--force],
-                                            #   timer enable|disable
+                                            #   timer enable|disable, serve
 npm run release -w @revamp/bundle-official  # owner only: GitHub release bundle-v<version>, then commits bundle.json
 ```
 
 - Without `--bundle`, the CLI takes an app's bundle from the first source that has it (`~/.config/revamp/sources.json`, bundles cached as `~/.cache/revamp/bundles/<sha256>.mjs`). Only when no source has the app and it runs from the repo does it use `bundles/official/dist/official.mjs`. When a source has the app, the CLI uses that source's pinned bundle and rebuilding changes nothing: while developing patches, pass `--bundle bundles/official/dist/official.mjs` or remove the source.
+- `npm run dev -w @revamp/gui` acts on the real home (installs, sources). For experiments start it as `XDG_CACHE_HOME="$HOME/.cache" HOME=/tmp/x npm run dev -w @revamp/gui`: cache first, because bash applies `HOME=… XDG_CACHE_HOME=$HOME/…` left to right.
 - The integration tests use `bundles/official/dist/official.mjs` directly. Rebuild it after changing bundle sources.
 - The integration tests (`REVAMP_INTEGRATION=1`) reuse the real download cache `~/.cache/revamp/releases`: Hydra 4.1.6, Heroic 2.22.3, and Hydra 4.0.6 forced as the deliberate mismatch. Without the cache that is about 430 MB of downloads. With it, a run takes about a minute.
 - Passing tests install nothing for the owner: integration runs use temp homes. To refresh the real menu entries, quit the app, then `npm run revamp -- patch <app>`; `npm run revamp -- list` shows what is installed.
@@ -64,6 +68,12 @@ All network, hashing, extraction and installing happen in the parent.
 - Publishing: `npm run release` puts `official.mjs` and `patches.json` on the GitHub release `bundle-v<version>`, and commits the root `bundle.json` that points at it. `bundles/official/CHANGELOG.md` needs a `## <version>` section (a unit test checks this).
 - CI (`.github/workflows/ci.yml`) runs the unit tests, then dry-runs every app version in `patches.json` against the real release, cached per app and version.
 - Bundle text is untrusted on screen too: the CLI prints everything through `printable()`, so control characters can't rewrite the trust prompt.
+
+**GUI (spec §9, M5).** The window is a Tauri v2 shell around `revamp serve`; it holds no engine logic.
+- `cli/serve.ts`: JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `createHandler` is tested in-process. Jobs stream `job.progress` from `patchApp`'s `progress` option; the sandboxed child reports each patch start as a `revamp-event {…}` stderr line. `sources.add` takes only a `sources.prepare` token from the same session.
+- `packages/gui/src`: Vite + React 18 + TypeScript with its own tsconfig (the root project excludes it). Screen logic lives in `model.ts` and `rpc.ts`, which Node tests cover; the TSX screens are checked in the browser pane through `npm run dev -w @revamp/gui`. `platform.ts` picks the transport: the Tauri sidecar, or Vite's websocket bridged to `revamp serve` in dev.
+- `packages/gui/src-tauri`: shell and notification plugins; the capability allows spawning only `revamp serve` from beside the window. The installed window's `revamp` is a link to `~/.local/share/revamp/bin/revamp`, so the window and the timer run one binary.
+- Check statuses: `update` (newer release, dry-run), `patches` (the source now pins another bundle than the install was patched with; `revamp update` re-patches), `skipped` (`<state>/skipped.json`). Storage (`engine/storage.ts`) removes only what it lists without a keep reason.
 
 **Extensions (spec §6, M3).** New UI ships as an extension: `bundles/official/src/hydra/extension/` (its own tsconfig with JSX and DOM types). Node tests may import its plain `.ts` files but never a `.tsx` file or anything that imports one, because Node can't strip JSX.
 - `scripts/build.ts` compiles it with esbuild into a string and embeds it in the bundle through `define` (`__REVAMP_HYDRA_EXTENSION__`). Unit tests import bundle sources directly and get a placeholder.
