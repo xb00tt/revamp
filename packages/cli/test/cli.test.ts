@@ -182,3 +182,8 @@ test("check and update say so when nothing is installed", () => {
   }
   assert.equal(cli(["update", "hydra"], home).stderr, "revamp: hydra is not installed; install it with revamp patch hydra\n");
 });
+
+test("the timer needs the installed binary", () => {
+  assert.equal(cli(["timer", "enable"]).stderr, "revamp: the timer runs the installed revamp: run npm run install:cli, then revamp timer enable\n");
+  assert.match(cli(["timer"]).stderr, /^"timer" needs enable or disable\./);
+});

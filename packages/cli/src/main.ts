@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { isSea } from "node:sea";
 import { fileURLToPath } from "node:url";
@@ -21,6 +22,7 @@ import {
   type Paths,
 } from "@revamp/engine";
 import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandidate, formatSources, printable } from "./format.ts";
+import { disableTimer, enableTimer } from "./timer.ts";
 
 // Bundles supply names, notes and messages, and the trust prompt follows them: print nothing that moves the cursor.
 const print = (text: string) => console.log(printable(text));
@@ -38,6 +40,7 @@ const USAGE = `Usage:
   revamp sources remove <source>
   revamp check [--notify]
   revamp update [<app>] [--force]
+  revamp timer enable|disable
 
 Without --bundle, an app's bundle comes from the first source that has it.`;
 
@@ -176,6 +179,23 @@ async function main(argv: string[]): Promise<number> {
         code = Math.max(code, u.result?.exitCode ?? 0);
       }
       return code;
+    }
+    case "timer": {
+      const units = join(dirname(paths.config), "systemd", "user");
+      if (appId === "enable") {
+        // The timer starts this very binary, so it has to be the installed SEA, not node running the repo's source.
+        if (!isSea()) throw new Error("the timer runs the installed revamp: run npm run install:cli, then revamp timer enable");
+        enableTimer(units, process.execPath);
+        print(`Enabled revamp-check.timer: "${process.execPath} check --notify" runs daily.`);
+        return 0;
+      }
+      if (appId === "disable") {
+        disableTimer(units);
+        print("Disabled revamp-check.timer.");
+        return 0;
+      }
+      printError(`"timer" needs enable or disable.\n${USAGE}`);
+      return 1;
     }
     case "sources":
       return sources(paths, positionals[1], positionals[2], values.yes ?? false);
