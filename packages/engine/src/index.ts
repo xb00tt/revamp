@@ -19,6 +19,7 @@ export {
   checkMessage,
   checkUpdates,
   latestRelease,
+  loadLastCheck,
   loadSkipped,
   skipVersion,
   updateApp,

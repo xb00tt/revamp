@@ -1,7 +1,5 @@
 // revamp serve (spec §9): JSON-RPC 2.0 for the GUI, one message per line on stdin and stdout. Logs go to stderr.
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { createInterface } from "node:readline";
 import {
   addSource,
@@ -9,6 +7,7 @@ import {
   describe,
   listInstalls,
   listPatches,
+  loadLastCheck,
   loadSelection,
   loadSkipped,
   loadSources,
@@ -22,7 +21,7 @@ import {
   storageUsage,
   updateApp,
   type BundleDescription,
-  type CheckResult,
+  type JobProgress,
   type SourceCandidate,
   type UpdateOptions,
 } from "@revamp/engine";
@@ -64,10 +63,15 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
   const descriptions = new Map<string, Promise<BundleDescription>>(); // bundles are content-addressed, so a path's description never changes
   const describeOnce = (path: string) => descriptions.get(path) ?? descriptions.set(path, describe(path)).get(path)!;
   const candidates = new Map<string, SourceCandidate>();
-  const lastCheck = (): CheckResult | null => {
-    const file = join(o.paths.state, "last-check.json");
-    return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as CheckResult) : null;
-  };
+  const lastCheck = () => loadLastCheck(o.paths);
+  /** A job's log lines and progress go to the window as notifications tagged with its request id; logs also to stderr. */
+  const report = (id: unknown, notify: Notify) => ({
+    log: (line: string) => {
+      o.log(line);
+      notify("job.log", { id, line });
+    },
+    progress: (e: JobProgress) => notify("job.progress", { id, ...e }),
+  });
 
   /** Installed apps plus the apps the sources offer, so a first install starts from the list too. */
   async function apps() {
@@ -112,16 +116,16 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
         enable: optStrs(p, "enable"),
         disable: optStrs(p, "disable"),
         options: optStrs(p, "options"),
-        progress: (e) => notify("job.progress", { id, ...e }),
+        ...report(id, notify),
       });
       return { result, report: formatPatchResult(result) };
     },
     "job.update": async (p, id, notify) => {
-      const update = await updateApp(str(p, "appId"), { ...o, force: optBool(p, "force"), progress: (e) => notify("job.progress", { id, ...e }) });
+      const update = await updateApp(str(p, "appId"), { ...o, force: optBool(p, "force"), ...report(id, notify) });
       return { ...update, ...(update.result && { report: formatPatchResult(update.result) }) };
     },
     "install.rollback": (p) => ({ current: rollback(o.paths, str(p, "appId")) }),
-    "check.run": () => checkUpdates(o),
+    "check.run": (_p, id, notify) => checkUpdates({ ...o, ...report(id, notify) }),
     "check.last": () => lastCheck(),
     "check.skip": (p) => {
       skipVersion(o.paths, str(p, "appId"), p.version === null ? null : str(p, "version"));

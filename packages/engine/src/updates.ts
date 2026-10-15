@@ -7,13 +7,15 @@ import { loadSelection } from "./config.ts";
 import { listInstalls, type InstalledApp } from "./install.ts";
 import { patchesForApp, type AppInfo, type BundleDescription } from "./job.ts";
 import type { Paths } from "./paths.ts";
-import { compareVersions } from "./version.ts";
+import { compareVersions, ENGINE_VERSION } from "./version.ts";
 
 export interface UpdateOptions extends SourceFetchOptions {
   paths: Paths;
   /** Tests point this at a local server; defaults to https://github.com. */
   releaseBaseUrl?: string;
   log?: (line: string) => void;
+  /** Structured progress of the patch jobs a check or update runs (the GUI draws it). */
+  progress?: PatchAppOptions["progress"];
 }
 
 export interface AppCheck {
@@ -41,6 +43,8 @@ export interface AppCheck {
   failing?: string[];
   aborted?: string;
   error?: string;
+  /** What the dry run depended on; the next check reuses its result while this stays the same. */
+  basis?: string;
 }
 
 export interface CheckResult {
@@ -110,16 +114,26 @@ const bundleChanged = (installed: InstalledApp, source: BundleSource) => receipt
 
 const isStable = (app: AppInfo, version: string) => Object.hasOwn(app.versions, version) && !app.versions[version].experimental;
 
+const lastCheckFile = (paths: Paths) => join(paths.state, "last-check.json");
+
+export function loadLastCheck(paths: Paths): CheckResult | null {
+  return existsSync(lastCheckFile(paths)) ? (JSON.parse(readFileSync(lastCheckFile(paths), "utf8")) as CheckResult) : null;
+}
+
 /**
  * Refreshes the sources, then for each installed app looks up its newest release and, if it is newer than
- * `current`, downloads, verifies and dry-runs it with the saved selection. The result goes to last-check.json.
+ * `current`, downloads, verifies and dry-runs it with the saved selection. A dry run whose basis (engine, release,
+ * bundle and selection) is unchanged since the last check is reused rather than run again. The result goes to
+ * last-check.json.
  */
 export async function checkUpdates(o: UpdateOptions): Promise<CheckResult> {
   const sources = await refreshSources(o.paths, o);
   const skipped = loadSkipped(o.paths);
+  const previous = loadLastCheck(o.paths);
   const apps: AppCheck[] = [];
   for (const installed of listInstalls(o.paths)) {
     if (!installed.current) continue;
+    o.log?.(`Checking ${installed.appId} ${installed.current}…`);
     const check: AppCheck = { appId: installed.appId, appName: installed.appId, current: installed.current, status: "failed" };
     try {
       const { bundlePath, source, description, app, latest } = await newest(installed.appId, o);
@@ -127,10 +141,15 @@ export async function checkUpdates(o: UpdateOptions): Promise<CheckResult> {
       const experimental = Object.hasOwn(app.versions, latest) && !listed;
       Object.assign(check, { appName: app.name, latest, listed, ...(experimental && { experimental }), status: "up to date" });
       if (compareVersions(latest, installed.current) > 0) {
+        const basis = JSON.stringify([ENGINE_VERSION, latest, source.sha256, loadSelection(o.paths, app.id)]);
+        const before = previous?.apps.find((a) => a.appId === app.id && a.status === "update" && a.basis === basis);
         if (skipped[app.id] === latest) check.status = "skipped";
-        else {
+        else if (before) {
+          o.log?.(`${app.name} ${latest}: nothing changed since the last dry run, so it isn't run again.`);
+          Object.assign(check, { status: "update", applied: before.applied, total: before.total, failing: before.failing, aborted: before.aborted, basis });
+        } else {
           const r = await patchApp({ ...o, appId: app.id, bundlePath, version: latest, force: !listed, dryRun: true });
-          Object.assign(check, { status: "update", ...patchCounts(r.results), aborted: r.aborted });
+          Object.assign(check, { status: "update", ...patchCounts(r.results), aborted: r.aborted, basis });
         }
       } else if (bundleChanged(installed, source)) {
         const { name, version } = description.manifest;
@@ -143,7 +162,7 @@ export async function checkUpdates(o: UpdateOptions): Promise<CheckResult> {
   }
   const result = { checkedAt: new Date().toISOString(), sources, apps };
   mkdirSync(o.paths.state, { recursive: true });
-  const file = join(o.paths.state, "last-check.json");
+  const file = lastCheckFile(o.paths);
   writeFileSync(`${file}.tmp`, `${JSON.stringify(result, null, 2)}\n`);
   renameSync(`${file}.tmp`, file);
   return result;
@@ -181,7 +200,7 @@ export interface AppUpdate {
  * `current` if its source now has a different bundle. A version the bundle doesn't list, or lists as experimental, needs
  * `force`; re-patching an untested install keeps it forced.
  */
-export async function updateApp(appId: string, o: UpdateOptions & { force?: boolean; progress?: PatchAppOptions["progress"] }): Promise<AppUpdate> {
+export async function updateApp(appId: string, o: UpdateOptions & { force?: boolean }): Promise<AppUpdate> {
   const installed = listInstalls(o.paths).find((a) => a.appId === appId);
   const current = installed?.current;
   if (!installed || !current) throw new Error(`${appId} is not installed; install it with revamp patch ${appId}`);

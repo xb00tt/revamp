@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { patchApp } from "../src/api.ts";
 import { addSource, prepareSource, removeSource } from "../src/bundle-sources.ts";
+import { saveSelection } from "../src/config.ts";
 import { revampPaths } from "../src/paths.ts";
 import { checkMessage, checkUpdates, loadSkipped, skipVersion, updateApp, type AppCheck, type UpdateOptions } from "../src/updates.ts";
 import { demoDeb, writeDemoBundle } from "./helpers/demo.ts";
@@ -57,9 +58,9 @@ test("check finds nothing new, then dry-runs a newer release and records the res
 
   s.state.latest = "v3.0.0"; // not listed in the bundle: verified by GitHub's digest and dry-run anyway
   const r = await checkUpdates(s.o);
-  assert.deepEqual(r.apps, [
-    { appId: "demo", appName: "Demo", current: "1.0.0", latest: "3.0.0", listed: false, status: "update", applied: 1, total: 1, failing: [], aborted: undefined },
-  ]);
+  const { basis, ...dryRun } = r.apps[0];
+  assert.deepEqual(dryRun, { appId: "demo", appName: "Demo", current: "1.0.0", latest: "3.0.0", listed: false, status: "update", applied: 1, total: 1, failing: [], aborted: undefined });
+  assert.match(basis ?? "", /"3\.0\.0"/);
   assert.equal(checkMessage(r.apps[0]), "Demo 3.0.0 out, not yet in your bundles (untested: 1/1 patches apply)");
   assert.deepEqual(JSON.parse(readFileSync(join(s.paths.state, "last-check.json"), "utf8")), JSON.parse(JSON.stringify(r)));
   assert.equal(readlinkSync(join(s.paths.data, "apps/demo/current")), "1.0.0", "a check installs nothing");
@@ -140,4 +141,24 @@ test("a skipped release stays quiet until a newer one is out", async (t) => {
   assert.equal((await checkUpdates(s.o)).apps[0].status, "update");
   skipVersion(s.paths, "demo", null);
   assert.deepEqual(loadSkipped(s.paths), {});
+});
+
+test("the next check reuses an unchanged dry run; a changed selection runs it again", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  s.state.latest = "v3.0.0";
+  const logs: string[] = [];
+  const o = { ...s.o, log: (line: string) => void logs.push(line) };
+  const first = (await checkUpdates(o)).apps[0];
+  assert.ok(logs.includes("Extracting…"));
+
+  logs.length = 0;
+  assert.deepEqual((await checkUpdates(o)).apps[0], first);
+  assert.deepEqual(logs, ["Checking demo 1.0.0…", "Demo 3.0.0: nothing changed since the last dry run, so it isn't run again."]);
+
+  saveSelection(s.paths, "demo", { enable: [], disable: ["Say goodbye"], options: {} });
+  logs.length = 0;
+  const third = (await checkUpdates(o)).apps[0];
+  assert.ok(logs.includes("Extracting…"));
+  assert.notEqual(third.basis, first.basis);
 });

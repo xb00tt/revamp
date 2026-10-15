@@ -51,15 +51,20 @@ test("apps, patches, a patch job with progress, and the installed result", async
   const job = await s.call("job.patch", { appId: "demo", enable: ["Say goodbye"] });
   assert.equal(job.result.result.installed, true);
   assert.match(job.result.report, /^Demo 1\.0\.0: 1\/1 patches apply \(installed to /);
-  const progress = s.notes.map((n) => n as { m: string; p: { id: number; step: string; patch?: string } });
-  assert.ok(progress.every((n) => n.m === "job.progress" && n.p.id === job.id));
+  const notes = s.notes.map((n) => n as { m: string; p: { id: number; step?: string; patch?: string; line?: string } });
+  assert.ok(notes.every((n) => (n.m === "job.progress" || n.m === "job.log") && n.p.id === job.id));
+  const progress = notes.filter((n) => n.m === "job.progress");
   assert.deepEqual([...new Set(progress.map((n) => n.p.step))], ["download", "extract", "patch", "repack", "install"]);
   assert.ok(progress.some((n) => n.p.patch === "Say goodbye"));
+  assert.deepEqual(notes.filter((n) => n.m === "job.log").map((n) => n.p.line), ["Downloading demo_1.0.0_amd64.deb…", "Extracting…", "Patching…", "Repacking…", "Installing…"]);
 
   const apps = (await s.call("apps.list")).result.apps;
   assert.deepEqual([apps[0].current, apps[0].versions[0].bundle, apps[0].versions[0].untested], ["1.0.0", { name: "Demo bundle", version: "1.0.0" }, false]);
   assert.deepEqual((await s.call("selection.get", { appId: "demo" })).result, { enable: ["Say goodbye"], disable: [], options: {} });
-  assert.deepEqual((await s.call("check.run")).result.apps.map((a: { status: string }) => a.status), ["up to date"]);
+  s.notes.length = 0;
+  const check = await s.call("check.run");
+  assert.deepEqual(check.result.apps.map((a: { status: string }) => a.status), ["up to date"]);
+  assert.deepEqual(s.notes, [{ m: "job.log", p: { id: check.id, line: "Checking demo 1.0.0…" } }]);
   assert.equal((await s.call("check.last")).result.apps[0].appId, "demo");
   assert.equal((await s.call("job.update", { appId: "demo" })).result.result, undefined);
 });
