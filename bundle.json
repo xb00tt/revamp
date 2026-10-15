@@ -1,0 +1,9 @@
+{
+  "name": "Revamp official",
+  "version": "0.3.0",
+  "minEngine": "0.2.0",
+  "created_at": "2026-10-15T00:54:15.811Z",
+  "changelog": "- Hydra 4.1.6: **More like this ranking**. The game page's \"More like this\" ranks games by shared Steam tags, shows the shared tags and an \"Already in library\" badge, and caches results for the session.",
+  "download_url": "https://github.com/xb00tt/revamp/releases/download/bundle-v0.3.0/official.mjs",
+  "sha256": "4476b58d65ff90d34bf62cc7d1ac73c93ad3338f09a17c585b1eb3c40b7b21c4"
+}
