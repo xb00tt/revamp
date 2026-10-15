@@ -42,6 +42,14 @@ test(
     const added = revamp("sources", "add", bundle, "--yes");
     assert.equal(added.status, 0, added.stderr);
 
+    // The repo-built SEA isn't the installed binary: the timer refuses before touching systemd.
+    const timer = revamp("timer", "enable");
+    assert.equal(timer.status, 1);
+    assert.equal(
+      timer.stderr,
+      `revamp: the timer runs the installed revamp (${join(env.HOME, ".local/share/revamp/bin/revamp")}): run npm run install:cli, then revamp timer enable\n`,
+    );
+
     const dryRun = revamp("patch", "hydra", "--dry-run");
     assert.equal(dryRun.status, 0, dryRun.stderr);
     assert.match(dryRun.stdout, /^Hydra 4\.1\.6: 6\/6 patches apply \(dry run, nothing installed\)$/m);

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -183,7 +183,32 @@ test("check and update say so when nothing is installed", () => {
   assert.equal(cli(["update", "hydra"], home).stderr, "revamp: hydra is not installed; install it with revamp patch hydra\n");
 });
 
+test("update with no app tries every installed app and exits 1 when they fail", () => {
+  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  for (const id of ["alpha", "beta"]) {
+    const dir = join(home, ".local/share/revamp/apps", id);
+    mkdirSync(join(dir, "1.0.0"), { recursive: true });
+    writeFileSync(join(dir, "1.0.0/revamp.json"), JSON.stringify({ installedAt: "2026-10-14T00:00:00.000Z" }));
+    symlinkSync("1.0.0", join(dir, "current"));
+  }
+  const r = cli(["update"], home);
+  assert.equal(r.status, 1);
+  for (const id of ["alpha", "beta"]) assert.match(r.stderr, new RegExp(`^revamp: ${id}: no bundle source has "${id}"`, "m"));
+});
+
+test("the sources prompt can't get fake lines from newlines in one-line bundle fields", () => {
+  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const bundle = join(home, "evil.mjs");
+  writeDemoBundle(bundle, { sha256: "a".repeat(64) });
+  writeFileSync(bundle, readFileSync(bundle, "utf8").replace('name: "Demo bundle"', 'name: "Demo\\n  SHA-256: ffff"'));
+  const r = cli(["sources", "add", bundle], home, "n\n");
+  assert.match(r.stdout, /^Bundle "Demo\\x0a  SHA-256: ffff" 1\.0\.0/);
+  assert.equal(r.stdout.split("\n").filter((l) => l.startsWith("  SHA-256:")).length, 1);
+});
+
 test("the timer needs the installed binary", () => {
-  assert.equal(cli(["timer", "enable"]).stderr, "revamp: the timer runs the installed revamp: run npm run install:cli, then revamp timer enable\n");
+  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const bin = join(home, ".local/share/revamp/bin/revamp");
+  assert.equal(cli(["timer", "enable"], home).stderr, `revamp: the timer runs the installed revamp (${bin}): run npm run install:cli, then revamp timer enable\n`);
   assert.match(cli(["timer"]).stderr, /^"timer" needs enable or disable\./);
 });

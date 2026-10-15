@@ -174,17 +174,26 @@ async function main(argv: string[]): Promise<number> {
       if (ids.length === 0) print("No Revamped apps installed.");
       let code = 0;
       for (const id of ids) {
-        const u = await updateApp(id, { paths, force: values.force, log: (line) => printError(line) });
-        print(u.result ? formatPatchResult(u.result) : `${u.appName} ${u.current} is up to date`);
-        code = Math.max(code, u.result?.exitCode ?? 0);
+        try {
+          const u = await updateApp(id, { paths, force: values.force, log: (line) => printError(line) });
+          print(u.result ? formatPatchResult(u.result) : `${u.appName} ${u.current} is up to date`);
+          code = Math.max(code, u.result?.exitCode ?? 0);
+        } catch (e) {
+          if (appId) throw e;
+          // One app's failure (say, an unlisted newest release) must not stop the others.
+          printError(`revamp: ${id}: ${e instanceof Error ? e.message : String(e)}`);
+          code = Math.max(code, 1);
+        }
       }
       return code;
     }
     case "timer": {
       const units = join(dirname(paths.config), "systemd", "user");
       if (appId === "enable") {
-        // The timer starts this very binary, so it has to be the installed SEA, not node running the repo's source.
-        if (!isSea()) throw new Error("the timer runs the installed revamp: run npm run install:cli, then revamp timer enable");
+        // The timer starts this very binary, so it has to be the installed SEA, not node running the repo's source
+        // or a repo-built SEA that the next build overwrites.
+        const bin = join(paths.data, "bin", "revamp");
+        if (!isSea() || process.execPath !== bin) throw new Error(`the timer runs the installed revamp (${bin}): run npm run install:cli, then revamp timer enable`);
         enableTimer(units, process.execPath);
         print(`Enabled revamp-check.timer: "${process.execPath} check --notify" runs daily.`);
         return 0;
