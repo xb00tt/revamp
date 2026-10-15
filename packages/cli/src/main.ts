@@ -155,7 +155,8 @@ async function main(argv: string[]): Promise<number> {
       if (values.notify) {
         const gui = join(paths.data, "gui", "revamp-gui");
         const news = r.apps.filter((c) => c.status !== "up to date" && c.status !== "skipped").map((c) => printable(checkMessage(c)));
-        notifyCheck(news, existsSync(gui) ? gui : undefined);
+        // Run by hand in a terminal, the check doesn't wait up to ten minutes for a click: no Open Revamp button then.
+        notifyCheck(news, existsSync(gui) && !process.stdout.isTTY ? gui : undefined, printError);
       }
       return r.apps.some((c) => c.status === "failed") ? 1 : 0;
     }

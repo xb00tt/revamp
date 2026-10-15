@@ -11,6 +11,8 @@ const cli = join(paths.data, "bin", "revamp");
 if (!existsSync(cli)) throw new Error(`${cli} is missing: install the CLI first (npm run install:cli)`);
 const built = fileURLToPath(new URL("../src-tauri/target/release/revamp-gui", import.meta.url));
 if (!existsSync(built)) throw new Error(`${built} is missing: build it first (npm run tauri:build -w @revamp/gui)`);
+const icon = fileURLToPath(new URL("../src-tauri/icons/icon.png", import.meta.url));
+if (!existsSync(icon)) throw new Error(`${icon} is missing`); // checked before anything is written: no half install
 
 // Desktop Entry spec: inside a quoted Exec argument, escape \ " ` $ with a backslash and double every %.
 export const execArg = (p: string) => `"${p.replace(/[\\"`$]/g, "\\$&").replace(/%/g, "%%")}"`;
@@ -26,7 +28,7 @@ mkdirSync(dir, { recursive: true });
 replace(gui, (tmp) => (copyFileSync(built, tmp), chmodSync(tmp, 0o755)));
 // The window starts its sidecar from beside itself. A link to the installed CLI keeps one revamp: the one the timer runs.
 replace(join(dir, "revamp"), (tmp) => symlinkSync(cli, tmp));
-replace(join(dir, "revamp.png"), (tmp) => copyFileSync(fileURLToPath(new URL("../src-tauri/icons/icon.png", import.meta.url)), tmp));
+replace(join(dir, "revamp.png"), (tmp) => copyFileSync(icon, tmp));
 
 mkdirSync(paths.applications, { recursive: true });
 const entry = [
