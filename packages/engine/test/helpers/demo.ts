@@ -8,7 +8,7 @@ import { debFrom, tarArchive, tarEntry } from "./archives.ts";
  * Writes a self-contained bundle: plain objects and no imports, shaped like esbuild's output for a real bundle.
  * `extra` is JavaScript run before the exports; it can push to `patches` and `app.required`.
  */
-export function writeDemoBundle(path: string, o: { sha256: string; minEngine?: string; extra?: string }): void {
+export function writeDemoBundle(path: string, o: { sha256: string; minEngine?: string; extra?: string; version?: string }): void {
   writeFileSync(
     path,
     `const app = {
@@ -27,7 +27,7 @@ const patches = [{
   },
 }];
 ${o.extra ?? ""}
-export const manifest = { name: "Demo bundle", version: "1.0.0", minEngine: "${o.minEngine ?? "0.1.0"}", author: "test", license: "GPL-3.0-only", source: "test" };
+export const manifest = { name: "Demo bundle", version: "${o.version ?? "1.0.0"}", minEngine: "${o.minEngine ?? "0.1.0"}", author: "test", license: "GPL-3.0-only", source: "test" };
 export const apps = [app];
 export { patches };
 `,

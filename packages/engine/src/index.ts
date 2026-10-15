@@ -4,6 +4,18 @@ export type { PatchResult, PatchStatus } from "./graph.ts";
 export type { Selection } from "./config.ts";
 
 export { describe, listPatches, newestStable, patchApp, type PatchAppOptions, type PatchAppResult, type PatchListing } from "./api.ts";
+export {
+  addSource,
+  bundleForApp,
+  loadSources,
+  prepareSource,
+  refreshSources,
+  removeSource,
+  sourceKind,
+  type BundleSource,
+  type SourceCandidate,
+  type SourceFetchOptions,
+} from "./bundle-sources.ts";
 export { listInstalls, rollback, uninstall, type InstalledApp } from "./install.ts";
 export { revampPaths, type Paths } from "./paths.ts";
 export { ENGINE_VERSION } from "./version.ts";
