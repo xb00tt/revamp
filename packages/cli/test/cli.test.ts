@@ -1,17 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PatchAppResult, PatchListing } from "@revamp/engine";
 import { writeDemoBundle } from "../../engine/test/helpers/demo.ts";
-import { formatInstalls, formatPatchList, formatPatchResult } from "../src/format.ts";
+import { formatInstalls, formatPatchList, formatPatchResult, printable } from "../src/format.ts";
 
 const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
-const cli = (args: string[], home = mkdtempSync(join(tmpdir(), "revamp-cli-"))) =>
-  spawnSync(process.execPath, [MAIN, ...args], { encoding: "utf8", env: { ...process.env, HOME: home, XDG_DATA_HOME: "", XDG_CONFIG_HOME: "" } });
+const cli = (args: string[], home = mkdtempSync(join(tmpdir(), "revamp-cli-")), input = "") =>
+  spawnSync(process.execPath, [MAIN, ...args], {
+    encoding: "utf8",
+    input,
+    env: { ...process.env, HOME: home, XDG_DATA_HOME: "", XDG_CONFIG_HOME: "", XDG_CACHE_HOME: "", XDG_STATE_HOME: "" },
+  });
 
 test("formatPatchResult shows each patch, failures under it, and notes", () => {
   const r: PatchAppResult = {
@@ -120,4 +125,40 @@ test("revamp patches lists a bundle's patches for an app; bad --option fails bef
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /revamp: --option "Say goodbye=1" must look like "<patch>:<key>=<value>"/);
   assert.match(cli(["patches", "nope", "--bundle", bundle]).stderr, /has no app "nope"/);
+});
+
+test("revamp sources adds a file source once confirmed, patches use it, and remove drops it", () => {
+  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const bundle = join(home, "demo.mjs");
+  writeDemoBundle(bundle, { sha256: "a".repeat(64) });
+  const sha256 = createHash("sha256").update(readFileSync(bundle)).digest("hex");
+
+  const declined = cli(["sources", "add", bundle], home, "n\n");
+  assert.equal(declined.status, 1);
+  assert.equal(
+    declined.stdout,
+    `Bundle "Demo bundle" 1.0.0 by test (GPL-3.0-only), from ${bundle}\n  Apps: Demo 1.0.0, 2.0.0\n  SHA-256: ${sha256}\nTrust this bundle and add the source? [y/N] `,
+  );
+  assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp\n");
+
+  assert.match(cli(["sources", "add", bundle, "--yes"], home).stdout, new RegExp(`\nAdded ${bundle}\\.\n$`));
+  assert.equal(cli(["sources", "list"], home).stdout, `${bundle}\n  "Demo bundle" 1.0.0 (file), apps: demo\n  SHA-256: ${sha256}\n`);
+  const listing = cli(["patches", "demo"], home);
+  assert.equal(listing.status, 0, listing.stderr);
+  assert.match(listing.stdout, /^Demo 1\.0\.0, from bundle "Demo bundle" 1\.0\.0\n/);
+
+  assert.equal(cli(["sources", "remove", bundle], home).stdout, `Removed ${bundle} ("Demo bundle" 1.0.0).\n`);
+  assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp\n");
+  assert.match(cli(["sources", "nope"], home).stderr, /^Unknown sources command "nope"\./);
+});
+
+test("bundle text can't move the cursor or clear the screen before the trust prompt", () => {
+  assert.equal(printable("a\x1b[2Kb\rc\u009b\nd\te"), "a\\x1b[2Kb\\x0dc\\x9b\nd\te");
+  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const bundle = join(home, "evil.mjs");
+  writeDemoBundle(bundle, { sha256: "a".repeat(64) });
+  writeFileSync(bundle, readFileSync(bundle, "utf8").replace('name: "Demo bundle"', 'name: "Demo\\u001b[2K\\r bundle"'));
+  const r = cli(["sources", "add", bundle], home, "n\n");
+  assert.match(r.stdout, /^Bundle "Demo\\x1b\[2K\\x0d bundle" 1\.0\.0/);
+  assert.doesNotMatch(r.stdout, /\x1b|\r/);
 });

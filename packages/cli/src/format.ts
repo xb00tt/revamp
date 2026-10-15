@@ -1,4 +1,4 @@
-import type { InstalledApp, PatchAppResult, PatchListing, PatchStatus } from "@revamp/engine";
+import type { BundleSource, InstalledApp, PatchAppResult, PatchListing, PatchStatus, SourceCandidate } from "@revamp/engine";
 
 const MARK: Record<PatchStatus, string> = { applied: "✓", failed: "✗", skipped: "–", incompatible: " ", disabled: " " };
 
@@ -58,4 +58,26 @@ export function formatPatchList(l: PatchListing): string {
     }
   }
   return lines.join("\n");
+}
+
+/** What `revamp sources add` shows before asking: the manifest, the apps and versions, and the hash to pin. */
+export function formatSourceCandidate(c: SourceCandidate): string {
+  const m = c.description.manifest;
+  const apps = c.description.apps.map((a) => `${a.name} ${Object.keys(a.versions).join(", ")}`).join("; ");
+  return [
+    `Bundle "${m.name}" ${m.version} by ${m.author} (${m.license}), from ${c.source.location}`,
+    `  Apps: ${apps}`,
+    `  SHA-256: ${c.source.sha256}`,
+    ...(c.changelog ? ["", ...c.changelog.split("\n").map((l) => `  ${l}`)] : []),
+  ].join("\n");
+}
+
+export function formatSources(sources: BundleSource[]): string {
+  if (sources.length === 0) return "No bundle sources. Add one: revamp sources add xb00tt/revamp";
+  return sources.map((s) => `${s.location}\n  "${s.name}" ${s.version} (${s.kind}), apps: ${s.apps.join(", ")}\n  SHA-256: ${s.sha256}`).join("\n");
+}
+
+/** Text with terminal control characters (all but newline and tab) shown as \xNN, so bundle text can't rewrite the screen. */
+export function printable(text: string): string {
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
 }

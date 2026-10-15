@@ -1,11 +1,26 @@
 import { createInterface } from "node:readline/promises";
+import { isSea } from "node:sea";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { listInstalls, listPatches, patchApp, revampPaths, rollback, uninstall } from "@revamp/engine";
-import { formatInstalls, formatPatchList, formatPatchResult } from "./format.ts";
+import {
+  addSource,
+  bundleForApp,
+  listInstalls,
+  listPatches,
+  loadSources,
+  patchApp,
+  prepareSource,
+  removeSource,
+  revampPaths,
+  rollback,
+  uninstall,
+  type Paths,
+} from "@revamp/engine";
+import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandidate, formatSources, printable } from "./format.ts";
 
-// Running from the repo, the bundle defaults to the repo build. A function, because a SEA has no import.meta.url.
-const defaultBundle = () => fileURLToPath(new URL("../../../bundles/official/dist/official.mjs", import.meta.url));
+// Bundles supply names, notes and messages, and the trust prompt follows them: print nothing that moves the cursor.
+const print = (text: string) => console.log(printable(text));
+const printError = (text: string) => console.error(printable(text));
 
 const USAGE = `Usage:
   revamp patch <app> [--version <v>] [--force] [--enable <patch>]... [--disable <patch>]...
@@ -13,7 +28,59 @@ const USAGE = `Usage:
   revamp patches <app> [--version <v>] [--bundle <file>]
   revamp list
   revamp rollback <app>
-  revamp uninstall <app> [--yes]`;
+  revamp uninstall <app> [--yes]
+  revamp sources add <owner/repo | https-url-of-bundle.json | file.mjs> [--yes]
+  revamp sources list
+  revamp sources remove <source>
+
+Without --bundle, an app's bundle comes from the first source that has it.`;
+
+async function confirm(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question(`${question} [y/N] `);
+  rl.close();
+  return /^y(es)?$/i.test(answer.trim());
+}
+
+/** --bundle, else the first bundle source with the app (spec §7.2), else, running from the repo, the repo build. */
+async function bundleFor(paths: Paths, appId: string, flag: string | undefined): Promise<string> {
+  if (flag) return flag;
+  const choice = await bundleForApp(paths, appId);
+  if (choice) {
+    for (const w of choice.warnings) printError(`Warning: ${w}`);
+    return choice.bundlePath;
+  }
+  if (!isSea()) return fileURLToPath(new URL("../../../bundles/official/dist/official.mjs", import.meta.url));
+  throw new Error(`no bundle source has "${appId}"; add one, e.g. revamp sources add xb00tt/revamp`);
+}
+
+async function sources(paths: Paths, sub: string | undefined, location: string | undefined, yes: boolean): Promise<number> {
+  const needLocation = () => {
+    if (!location) throw new Error(`"sources ${sub}" needs a source, e.g. revamp sources ${sub} xb00tt/revamp`);
+    return location;
+  };
+  switch (sub) {
+    case "add": {
+      const candidate = await prepareSource(paths, needLocation());
+      print(formatSourceCandidate(candidate));
+      if (!yes && !(await confirm("Trust this bundle and add the source?"))) return 1;
+      addSource(paths, candidate.source);
+      print(`Added ${candidate.source.location}.`);
+      return 0;
+    }
+    case "list":
+      print(formatSources(loadSources(paths)));
+      return 0;
+    case "remove": {
+      const removed = removeSource(paths, needLocation());
+      print(`Removed ${removed.location} ("${removed.name}" ${removed.version}).`);
+      return 0;
+    }
+    default:
+      printError(`Unknown sources command "${sub ?? ""}".\n${USAGE}`);
+      return 1;
+  }
+}
 
 async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -33,11 +100,11 @@ async function main(argv: string[]): Promise<number> {
   });
   const [command, appId] = positionals;
   if (values.help) {
-    console.log(USAGE);
+    print(USAGE);
     return 0;
   }
   if (!command) {
-    console.error(USAGE);
+    printError(USAGE);
     return 1;
   }
   const paths = revampPaths();
@@ -49,7 +116,7 @@ async function main(argv: string[]): Promise<number> {
     case "patch": {
       const result = await patchApp({
         appId: needApp(),
-        bundlePath: values.bundle ?? defaultBundle(),
+        bundlePath: await bundleFor(paths, needApp(), values.bundle),
         version: values.version,
         force: values.force,
         enable: values.enable,
@@ -57,34 +124,31 @@ async function main(argv: string[]): Promise<number> {
         options: values.option,
         dryRun: values["dry-run"],
         paths,
-        log: (line) => console.error(line),
+        log: (line) => printError(line),
       });
-      console.log(formatPatchResult(result));
+      print(formatPatchResult(result));
       return result.exitCode;
     }
     case "patches":
-      console.log(formatPatchList(await listPatches(values.bundle ?? defaultBundle(), needApp(), values.version)));
+      print(formatPatchList(await listPatches(await bundleFor(paths, needApp(), values.bundle), needApp(), values.version)));
       return 0;
     case "list":
-      console.log(formatInstalls(listInstalls(paths)));
+      print(formatInstalls(listInstalls(paths)));
       return 0;
     case "rollback":
-      console.log(`${needApp()}: now using ${rollback(paths, needApp())}`);
+      print(`${needApp()}: now using ${rollback(paths, needApp())}`);
       return 0;
     case "uninstall": {
       const id = needApp();
-      if (!values.yes) {
-        const rl = createInterface({ input: process.stdin, output: process.stdout });
-        const answer = await rl.question(`Remove Revamped ${id} (all versions, its menu entry and saved choices)? [y/N] `);
-        rl.close();
-        if (!/^y(es)?$/i.test(answer.trim())) return 1;
-      }
+      if (!values.yes && !(await confirm(`Remove Revamped ${id} (all versions, its menu entry and saved choices)?`))) return 1;
       uninstall(paths, id);
-      console.log(`Removed Revamped ${id}.`);
+      print(`Removed Revamped ${id}.`);
       return 0;
     }
+    case "sources":
+      return sources(paths, positionals[1], positionals[2], values.yes ?? false);
     default:
-      console.error(`Unknown command "${command}".\n${USAGE}`);
+      printError(`Unknown command "${command}".\n${USAGE}`);
       return 1;
   }
 }
@@ -94,7 +158,7 @@ main(process.argv.slice(2)).then(
     process.exitCode = code;
   },
   (e) => {
-    console.error(`revamp: ${e instanceof Error ? e.message : String(e)}`);
+    printError(`revamp: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
   },
 );

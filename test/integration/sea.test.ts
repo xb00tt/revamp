@@ -35,7 +35,14 @@ test(
     assert.equal(denied.status, 1);
     assert.match(denied.stderr, /Access to this API has been restricted/);
 
-    const dryRun = revamp("patch", "hydra", "--dry-run", "--bundle", bundle);
+    // Outside the repo there is no default bundle: it comes from a source.
+    const none = revamp("patches", "hydra");
+    assert.equal(none.status, 1);
+    assert.equal(none.stderr, 'revamp: no bundle source has "hydra"; add one, e.g. revamp sources add xb00tt/revamp\n');
+    const added = revamp("sources", "add", bundle, "--yes");
+    assert.equal(added.status, 0, added.stderr);
+
+    const dryRun = revamp("patch", "hydra", "--dry-run");
     assert.equal(dryRun.status, 0, dryRun.stderr);
     assert.match(dryRun.stdout, /^Hydra 4\.1\.6: 6\/6 patches apply \(dry run, nothing installed\)$/m);
   },
