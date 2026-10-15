@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { isSea } from "node:sea";
@@ -21,6 +21,7 @@ import {
 } from "@revamp/engine";
 import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandidate, formatSources, printable } from "./format.ts";
 import { bundleFor } from "./bundle-for.ts";
+import { notifyCheck } from "./notify.ts";
 import { serve } from "./serve.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
 
@@ -150,11 +151,11 @@ async function main(argv: string[]): Promise<number> {
       const r = await checkUpdates({ paths, log: (line) => printError(line) });
       for (const line of r.sources) print(line);
       if (r.apps.length === 0) print("No Revamped apps installed.");
-      for (const c of r.apps) {
-        const text = checkMessage(c);
-        print(text);
-        // notify-send is optional: without it, the line is still in the timer's journal.
-        if (values.notify && c.status !== "up to date" && c.status !== "skipped") spawnSync("notify-send", ["Revamp", text], { stdio: "ignore" });
+      for (const c of r.apps) print(checkMessage(c));
+      if (values.notify) {
+        const gui = join(paths.data, "gui", "revamp-gui");
+        const news = r.apps.filter((c) => c.status !== "up to date" && c.status !== "skipped").map((c) => printable(checkMessage(c)));
+        notifyCheck(news, existsSync(gui) ? gui : undefined);
       }
       return r.apps.some((c) => c.status === "failed") ? 1 : 0;
     }
