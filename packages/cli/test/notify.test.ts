@@ -16,14 +16,14 @@ test("one notification for all lines; nothing when there is nothing to say", () 
   notifyCheck([], "/gui", r.run);
   assert.deepEqual(r.calls, []);
   notifyCheck(["Hydra 4.1.7 out, 6/6 patches apply", "Heroic 2.22.3: Revamp official 0.4.0 is out; re-patch to use it"], undefined, r.run);
-  assert.deepEqual(r.calls, [["notify-send", ["--app-name=Revamp", "Revamp", "Hydra 4.1.7 out, 6/6 patches apply\nHeroic 2.22.3: Revamp official 0.4.0 is out; re-patch to use it"]]]);
+  assert.deepEqual(r.calls, [["notify-send", ["--app-name=Revamp", "--", "Revamp", "Hydra 4.1.7 out, 6/6 patches apply\nHeroic 2.22.3: Revamp official 0.4.0 is out; re-patch to use it"]]]);
 });
 
 test("with the GUI installed, Open Revamp starts it in its own user unit", () => {
   const clicked = recorder("open");
   notifyCheck(["Hydra 4.1.7 out"], "/home/me/.local/share/revamp/gui/revamp-gui", clicked.run);
   assert.deepEqual(clicked.calls, [
-    ["notify-send", ["--app-name=Revamp", "--action=open=Open Revamp", "Revamp", "Hydra 4.1.7 out"]],
+    ["notify-send", ["--app-name=Revamp", "--action=open=Open Revamp", "--", "Revamp", "Hydra 4.1.7 out"]],
     ["systemd-run", ["--user", "--collect", "--quiet", "/home/me/.local/share/revamp/gui/revamp-gui"]],
   ]);
   const dismissed = recorder("");

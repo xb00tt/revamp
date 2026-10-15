@@ -9,8 +9,8 @@ export function notifyCheck(lines: string[], gui: string | undefined, run: Run =
   if (lines.length === 0) return;
   const body = lines.join("\n");
   // notify-send is optional: without it the lines are still in the timer's journal.
-  if (!gui) return void run("notify-send", ["--app-name=Revamp", "Revamp", body], { stdio: "ignore" });
+  if (!gui) return void run("notify-send", ["--app-name=Revamp", "--", "Revamp", body], { stdio: "ignore" });
   // -A waits for the click; after ten minutes the check stops waiting and ends.
-  const r = run("notify-send", ["--app-name=Revamp", "--action=open=Open Revamp", "Revamp", body], { encoding: "utf8", timeout: 600_000 });
+  const r = run("notify-send", ["--app-name=Revamp", "--action=open=Open Revamp", "--", "Revamp", body], { encoding: "utf8", timeout: 600_000 });
   if (String(r.stdout ?? "").trim() === "open") run("systemd-run", ["--user", "--collect", "--quiet", gui], { stdio: "ignore" });
 }

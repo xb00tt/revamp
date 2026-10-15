@@ -12,6 +12,9 @@ if (!existsSync(cli)) throw new Error(`${cli} is missing: install the CLI first 
 const built = fileURLToPath(new URL("../src-tauri/target/release/revamp-gui", import.meta.url));
 if (!existsSync(built)) throw new Error(`${built} is missing: build it first (npm run tauri:build -w @revamp/gui)`);
 
+// Desktop Entry spec: inside a quoted Exec argument, escape \ " ` $ with a backslash and double every %.
+export const execArg = (p: string) => `"${p.replace(/[\\"`$]/g, "\\$&").replace(/%/g, "%%")}"`;
+
 const dir = join(paths.data, "gui");
 const gui = join(dir, "revamp-gui");
 const replace = (target: string, write: (tmp: string) => void) => {
@@ -31,7 +34,7 @@ const entry = [
   "Type=Application",
   "Name=Revamp",
   "Comment=Patch, update and roll back Revamped apps",
-  `Exec="${gui}"`,
+  `Exec=${execArg(gui)}`,
   `Icon=${join(dir, "revamp.png")}`,
   "Categories=Utility;",
   "Terminal=false",
