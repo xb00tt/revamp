@@ -162,3 +162,13 @@ test("bundle text can't move the cursor or clear the screen before the trust pro
   assert.match(r.stdout, /^Bundle "Demo\\x1b\[2K\\x0d bundle" 1\.0\.0/);
   assert.doesNotMatch(r.stdout, /\x1b|\r/);
 });
+
+test("end of input at the trust prompt answers no: exit 1, nothing saved", () => {
+  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const bundle = join(home, "demo.mjs");
+  writeDemoBundle(bundle, { sha256: "a".repeat(64) });
+  const r = cli(["sources", "add", bundle], home);
+  assert.equal(r.status, 1);
+  assert.equal(r.stderr, "");
+  assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp\n");
+});

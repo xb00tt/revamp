@@ -37,7 +37,9 @@ Without --bundle, an app's bundle comes from the first source that has it.`;
 
 async function confirm(question: string): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await rl.question(`${question} [y/N] `);
+  // End of input answers no: question() never settles when stdin closes, so race it against the close.
+  const closed = new Promise<string>((resolve) => rl.once("close", () => resolve("")));
+  const answer = await Promise.race([rl.question(`${question} [y/N] `).catch(() => ""), closed]);
   rl.close();
   return /^y(es)?$/i.test(answer.trim());
 }
