@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AppCheck } from "@revamp/engine";
-import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, initialToggles, jobEvent, optionFlags, type PatchRow, pendingUpdates, plain, progressLabel, reclaimable, selectionFlags, startJob } from "../src/model.ts";
+import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, initialToggles, jobEvent, optionFlags, type PatchRow, patchName, pendingUpdates, plain, progressLabel, reclaimable, selectionFlags, startJob } from "../src/model.ts";
 
 const app = (appId: string, current: string | null): AppRow => ({ appId, name: appId, current, versions: [] });
 const check = (appId: string, status: AppCheck["status"], latest = "1.1.0"): AppCheck => ({ appId, appName: appId, current: "1.0.0", latest, status });
@@ -44,6 +44,8 @@ test("progress labels, sizes and what storage can free", () => {
   assert.equal(progressLabel({ step: "download", percent: 42 }), "Downloading 42%");
   assert.equal(progressLabel({ step: "download" }), "Downloading…");
   assert.equal(progressLabel({ step: "patch", patch: "More like this ranking", index: 5, total: 11 }), "Patching: More like this ranking (5/11)");
+  assert.equal(progressLabel({ step: "patch", patch: "(internal patch #7: Hydra extension loader)", index: 7, total: 12 }), "Patching: Hydra extension loader (helper) (7/12)");
+  assert.deepEqual(["(internal patch #3)", "(internal patch #9: registry: game data)", "Use the bundled UI"].map(patchName), ["helper #3", "registry: game data (helper)", "Use the bundled UI"]);
   assert.equal(progressLabel({ step: "repack" }), "Repacking…");
   assert.deepEqual([formatBytes(900), formatBytes(48 * 1024), formatBytes(147 * 1024 ** 2), formatBytes(1.07 * 1024 ** 3)], ["900 B", "48 KB", "147 MB", "1.1 GB"]);
   assert.equal(reclaimable([{ id: "a", kind: "release", label: "", bytes: 5 }, { id: "b", kind: "bundle", label: "", bytes: 7, keep: "pinned" }, { id: "c", kind: "install", label: "", bytes: 3 }]), 8);
@@ -108,6 +110,8 @@ test("a job's log and progress build up from its notifications", () => {
       [3000, "Patching 2/4: Say goodbye"],
     ],
   );
+  s = jobEvent(s, "job.progress", { id: 1, step: "patch", patch: "(internal patch #3: Hydra extension loader)", index: 3, total: 4 }, 3200);
+  assert.equal(s.lines.at(-1)?.text, "Patching 3/4: Hydra extension loader (helper)");
 });
 
 test("download percentages are logged once per tenth", () => {
@@ -124,6 +128,7 @@ test("finishing a job lists every named patch, notes and the summary", () => {
       results: [
         { name: "Disable self-update", status: "applied", required: true, internal: false },
         { name: "(internal patch #4: Hydra locales)", status: "applied", required: false, internal: true },
+        { name: "(internal patch #5: registry: library)", status: "failed", required: false, internal: true, message: "fingerprint z: pattern found 0 matches" },
         { name: "Recently downloaded sort", status: "failed", required: false, internal: false, message: "fingerprint x: pattern found 0 matches" },
         { name: "More like this ranking", status: "skipped", required: false, internal: false, message: 'dependency "y" failed' },
         { name: "Hide Deals link", status: "incompatible", required: false, internal: false },
@@ -134,6 +139,7 @@ test("finishing a job lists every named patch, notes and the summary", () => {
   assert.deepEqual([s.done, s.ok, s.percent, s.steps.patch, s.summary], [true, false, 100, "done", "Hydra 4.1.7 (untested): 1/3 patches apply (dry run, nothing installed)"]);
   assert.deepEqual(s.lines.map((l) => [l.kind, l.text]), [
     ["ok", "✓ Disable self-update (required)"],
+    ["fail", "✗ registry: library (helper): fingerprint z: pattern found 0 matches"],
     ["fail", "✗ Recently downloaded sort: fingerprint x: pattern found 0 matches"],
     ["fail", '– More like this ranking skipped: dependency "y" failed'],
     ["warn", "Note: Hydra 4.1.7 is untested."],

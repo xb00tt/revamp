@@ -88,9 +88,15 @@ export function optionFlags(patches: PatchRow[], values: Record<string, Record<s
 
 const STEP: Record<JobProgress["step"], string> = { download: "Downloading", extract: "Extracting", patch: "Patching", repack: "Repacking", install: "Installing" };
 
+/** The engine labels a patch the user doesn't pick "(internal patch #7: Hydra extension loader)"; on screen it reads "Hydra extension loader (helper)". */
+export function patchName(label: string): string {
+  const m = /^\(internal patch #(\d+)(?:: (.*))?\)$/s.exec(label);
+  return !m ? label : m[2] ? `${m[2]} (helper)` : `helper #${m[1]}`;
+}
+
 export function progressLabel(e: JobProgress): string {
   if (e.step === "download" && e.percent !== undefined) return `Downloading ${e.percent}%`;
-  if (e.step === "patch" && e.patch) return `Patching: ${e.patch} (${e.index}/${e.total})`;
+  if (e.step === "patch" && e.patch) return `Patching: ${patchName(e.patch)} (${e.index}/${e.total})`;
   return `${STEP[e.step]}…`;
 }
 
@@ -157,7 +163,7 @@ export function jobEvent(s: JobState, method: string, params: unknown, now: numb
     next.fraction = p.percent / 100;
     if (s.logged < 0 || Math.floor(p.percent / 10) > Math.floor(s.logged / 10)) next = { ...next, logged: p.percent, lines: line("info", `Downloaded ${p.percent}%`) };
   }
-  if (p.step === "patch" && p.patch && p.index && p.total) next = { ...next, fraction: (p.index - 1) / p.total, lines: line("info", `Patching ${p.index}/${p.total}: ${p.patch}`) };
+  if (p.step === "patch" && p.patch && p.index && p.total) next = { ...next, fraction: (p.index - 1) / p.total, lines: line("info", `Patching ${p.index}/${p.total}: ${patchName(p.patch)}`) };
   return { ...next, percent: percentOf(next) };
 }
 
@@ -179,7 +185,7 @@ export function finishJob(s: JobState, outcome: JobOutcome, now: number): JobSta
   if (!r) return add("summary", outcome.upToDate ?? "Nothing to do"), end(true, outcome.upToDate ?? "Nothing to do", 100);
   for (const x of r.results) {
     if (x.status === "applied" && !x.internal) add("ok", `✓ ${x.name}${x.required ? " (required)" : ""}`);
-    else if (x.status === "failed") add("fail", `✗ ${x.name}${x.message ? `: ${x.message}` : ""}`);
+    else if (x.status === "failed") add("fail", `✗ ${patchName(x.name)}${x.message ? `: ${x.message}` : ""}`);
     else if (x.status === "skipped" && !x.internal) add("fail", `– ${x.name} skipped${x.message ? `: ${x.message}` : ""}`);
   }
   if (r.aborted) add("fail", `Stopped: ${r.aborted}`);
