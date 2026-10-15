@@ -13,5 +13,5 @@
     "types": ["node"]
   },
   "include": ["packages/*/src", "packages/*/scripts", "packages/*/test", "bundles/*/src", "bundles/*/scripts", "bundles/*/test", "test"],
-  "exclude": ["bundles/official/src/hydra/extension"]
+  "exclude": ["bundles/official/src/hydra/extension", "packages/gui/src"]
 }

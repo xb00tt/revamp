@@ -1,0 +1,54 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f5f2; --panel: #ffffff; --side: #efede8; --text: #1f1e1c; --muted: #6b6963; --border: #d9d6cf;
+  --accent: #185fa5; --accent-bg: #e6f1fb; --warn: #854f0b; --warn-bg: #faeeda; --danger: #a32d2d; --danger-bg: #fcebeb; --ok: #3b6d11; --ok-bg: #eaf3de;
+  font: 14px/1.5 system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1b; --panel: #252524; --side: #20201f; --text: #ecebe7; --muted: #a3a19a; --border: #3a3936;
+    --accent: #85b7eb; --accent-bg: #0c447c; --warn: #fac775; --warn-bg: #633806; --danger: #f09595; --danger-bg: #791f1f; --ok: #c0dd97; --ok-bg: #27500a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+button:disabled { opacity: 0.6; cursor: default; }
+button.primary { background: var(--accent); color: var(--panel); border-color: transparent; }
+button.small { padding: 2px 8px; font-size: 12px; }
+button.link { border: none; background: none; padding: 0; text-decoration: underline; }
+input:not([type]), select { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; flex: 1; }
+h2 { font-size: 18px; font-weight: 500; margin: 0 0 2px; }
+h3 { font-size: 14px; font-weight: 500; margin: 0 0 6px; }
+.window { display: flex; min-height: 100vh; }
+.side { width: 220px; background: var(--side); border-right: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.side-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; }
+.side-foot { margin-top: auto; border-top: 1px solid var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.nav { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; background: none; border-color: transparent; }
+.nav.sel { background: var(--panel); border-color: var(--border); }
+.nav-title { font-weight: 500; }
+.main { flex: 1; min-width: 0; padding: 18px 22px; overflow: auto; }
+.muted { color: var(--muted); font-size: 12px; margin: 2px 0; }
+.warn { color: var(--warn); }
+.pill { font-size: 11px; padding: 1px 8px; border-radius: 6px; background: var(--side); color: var(--muted); }
+.pill.release { background: var(--warn-bg); color: var(--warn); }
+.pill.patches, .pill.accent { background: var(--accent-bg); color: var(--accent); }
+.pill.ok { background: var(--ok-bg); color: var(--ok); }
+.pill.failed { background: var(--danger-bg); color: var(--danger); }
+.banner { margin: 12px 0; padding: 10px 12px; border-radius: 6px; background: var(--side); white-space: pre-wrap; font: inherit; }
+.banner.warning { background: var(--warn-bg); color: var(--warn); }
+.banner.accent { background: var(--accent-bg); color: var(--accent); }
+.banner.danger { background: var(--danger-bg); color: var(--danger); }
+.row-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.field { display: flex; gap: 10px; align-items: center; margin: 14px 0 6px; }
+.patches, .versions { list-style: none; padding: 0; margin: 10px 0 0; }
+.patches li { display: flex; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); }
+.versions li { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 7px 0; border-top: 1px solid var(--border); }
+.option { display: flex; gap: 6px; align-items: center; }
+.status { font-size: 12px; }
+.status.applied { color: var(--ok); }
+.status.failed { color: var(--danger); }
+.card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-top: 12px; background: var(--panel); }
+.preview { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.hash, .report { display: block; font: 12px/1.5 ui-monospace, monospace; background: var(--side); padding: 6px 8px; border-radius: 6px; word-break: break-all; white-space: pre-wrap; }
+.fatal { padding: 24px; }
