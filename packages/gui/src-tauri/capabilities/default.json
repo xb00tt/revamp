@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The window may start only `revamp serve` from its own sidecar, talk to it, and post notifications.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    { "identifier": "shell:allow-spawn", "allow": [{ "name": "binaries/revamp", "sidecar": true, "args": ["serve"] }] },
+    "shell:allow-stdin-write",
+    "shell:allow-kill"
+  ]
+}

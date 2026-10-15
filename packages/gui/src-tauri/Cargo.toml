@@ -1,0 +1,19 @@
+[package]
+name = "revamp-gui"
+version = "0.1.0"
+description = "The Revamp window: a Tauri shell around `revamp serve`"
+edition = "2021"
+license = "GPL-3.0-only"
+
+# Exact versions, matching the @tauri-apps packages in package.json.
+[build-dependencies]
+tauri-build = { version = "=2.7.3", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.4", features = [] }
+tauri-plugin-shell = "=2.5.0"
+tauri-plugin-notification = "=2.7.0"
+
+[profile.release]
+strip = true
+lto = true

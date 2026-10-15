@@ -7,7 +7,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "icon": "node scripts/icon.ts",
+    "tauri:dev": "npm run build -w @revamp/cli && node scripts/sidecar.ts && tauri dev",
+    "tauri:build": "npm run build -w @revamp/cli && node scripts/sidecar.ts && tauri build --no-bundle"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.3",
