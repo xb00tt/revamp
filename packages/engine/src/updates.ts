@@ -25,6 +25,8 @@ export interface AppCheck {
   status: "up to date" | "update" | "failed";
   /** The bundle lists the newest release as a stable version. */
   listed?: boolean;
+  /** The bundle lists the newest release, but as experimental. */
+  experimental?: boolean;
   /** The dry run of the newest release with the saved selection. */
   applied?: number;
   total?: number;
@@ -80,9 +82,11 @@ export async function checkUpdates(o: UpdateOptions): Promise<CheckResult> {
     const check: AppCheck = { appId: installed.appId, appName: installed.appId, current: installed.current, status: "failed" };
     try {
       const { bundlePath, app, latest } = await newest(installed.appId, o);
-      Object.assign(check, { appName: app.name, latest, listed: isStable(app, latest), status: "up to date" });
+      const listed = isStable(app, latest);
+      const experimental = Object.hasOwn(app.versions, latest) && !listed;
+      Object.assign(check, { appName: app.name, latest, listed, ...(experimental && { experimental }), status: "up to date" });
       if (compareVersions(latest, installed.current) > 0) {
-        const r = await patchApp({ ...o, appId: app.id, bundlePath, version: latest, force: true, dryRun: true });
+        const r = await patchApp({ ...o, appId: app.id, bundlePath, version: latest, force: !listed, dryRun: true });
         Object.assign(check, { status: "update", ...patchCounts(r.results), aborted: r.aborted });
       }
     } catch (e) {
@@ -105,6 +109,7 @@ export function checkMessage(c: AppCheck): string {
   const out = `${c.appName} ${c.latest} out`;
   if (c.aborted) return `${out}, but its patch job fails: ${c.aborted}`;
   const counts = `${c.applied}/${c.total}`;
+  if (c.experimental) return `${out}, experimental in your bundles (${counts} patches apply)`;
   if (!c.listed) return `${out}, not yet in your bundles (untested: ${counts} patches apply)`;
   if (!c.failing?.length) return `${out}, ${counts} patches apply`;
   return `${out}, ${counts} apply: ${c.failing.join(", ")} ${c.failing.length === 1 ? "fails" : "fail"}`;

@@ -166,3 +166,31 @@ test("the first source with an app wins, and a changed file source is refused", 
   await assert.rejects(bundleForApp(s.paths, "demo", s.o), new RegExp(`${file} changed since it was added as a source`));
   assert.equal(existsSync(choice!.bundlePath), false);
 });
+
+test("a file source whose original was edited or deleted still uses the pinned copy, with a warning", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  const file = join(s.root, "local.mjs");
+  writeDemoBundle(file, { sha256: "a".repeat(64) });
+  addSource(s.paths, (await prepareSource(s.paths, file, s.o)).source);
+  assert.deepEqual((await bundleForApp(s.paths, "demo", s.o))?.warnings, []);
+  const note = `${file} changed since it was added; still using the pinned copy (revamp sources remove, then add, to trust the new file)`;
+  writeFileSync(file, `${readFileSync(file, "utf8")}\n// changed\n`);
+  assert.deepEqual((await bundleForApp(s.paths, "demo", s.o))?.warnings, [note]);
+  rmSync(file);
+  assert.deepEqual((await bundleForApp(s.paths, "demo", s.o))?.warnings, [note]);
+});
+
+test("a refresh with nothing new doesn't rewrite sources.json", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  s.publish("1.0.0");
+  addSource(s.paths, (await prepareSource(s.paths, "example/bundles", s.o)).source);
+  const file = join(s.paths.config, "sources.json");
+  const before = readFileSync(file, "utf8");
+  // a concurrent `sources remove` that lands while the refresh runs must survive it
+  rmSync(file);
+  assert.deepEqual(await refreshSources(s.paths, s.o), []);
+  assert.equal(existsSync(file), false);
+  writeFileSync(file, before);
+});

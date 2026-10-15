@@ -181,6 +181,7 @@ export function removeSource(paths: Paths, location: string): BundleSource {
 export async function refreshSources(paths: Paths, o: SourceFetchOptions = {}): Promise<string[]> {
   const sources = loadSources(paths);
   const lines: string[] = [];
+  let moved = false;
   for (const [i, s] of sources.entries()) {
     if (s.kind !== "github") continue;
     try {
@@ -188,12 +189,13 @@ export async function refreshSources(paths: Paths, o: SourceFetchOptions = {}): 
       if (j.version === s.version) continue;
       const next = (await prepareSource(paths, s.location, o)).source;
       sources[i] = next;
+      moved = true;
       lines.push(`${s.location}: "${s.name}" ${s.version} → ${next.version}${j.changelog ? `\n${j.changelog}` : ""}`);
     } catch (e) {
       lines.push(`${s.location}: not refreshed, still using ${s.version}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  saveSources(paths, sources);
+  if (moved) saveSources(paths, sources); // a `sources add/remove` that landed meanwhile is only lost when a pin moved
   return lines;
 }
 
@@ -217,6 +219,9 @@ export async function bundleForApp(paths: Paths, appId: string, o: SourceFetchOp
     if (!existsSync(source.location) || (await cacheFile(paths, source.location)) !== source.sha256) {
       throw new Error(`${source.location} changed since it was added as a source; add it again (revamp sources remove, then add) to trust the new file`);
     }
+  }
+  if (source.kind === "file" && (!existsSync(source.location) || (await fileSha256(source.location)) !== source.sha256)) {
+    warnings.push(`${source.location} changed since it was added; still using the pinned copy (revamp sources remove, then add, to trust the new file)`);
   }
   return { bundlePath, source, warnings };
 }

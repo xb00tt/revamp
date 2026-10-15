@@ -13,7 +13,7 @@ import { checkMessage, checkUpdates, updateApp, type AppCheck, type UpdateOption
 import { demoDeb, writeDemoBundle } from "./helpers/demo.ts";
 
 /** Demo 1.0.0 installed from a file source; the fake GitHub's latest release is `state.latest`. */
-async function setup() {
+async function setup(list3 = false) {
   const deb = await demoDeb();
   const sha256 = createHash("sha256").update(deb).digest("hex");
   const state = { latest: "v1.0.0" };
@@ -32,9 +32,12 @@ async function setup() {
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const o: UpdateOptions = { paths, apiBaseUrl: base, releaseBaseUrl: base };
   const bundle = join(root, "demo.mjs");
-  writeDemoBundle(bundle, { sha256 });
+  // list3: the bundle lists 3.0.0 as stable, with a patch that exists only for 1.0.0 and would fail on 3.0.0.
+  const extra = `app.versions["3.0.0"] = { sha256: "${sha256}" };
+patches.push({ kind: "patch", name: "Old only", compatibleWith: [{ app, versions: ["1.0.0"] }], execute() { throw new Error("only for 1.0.0"); } });`;
+  writeDemoBundle(bundle, { sha256, extra: list3 ? extra : undefined });
   addSource(paths, (await prepareSource(paths, bundle)).source);
-  assert.equal((await patchApp({ ...o, appId: "demo", bundlePath: bundle })).installed, true);
+  assert.equal((await patchApp({ ...o, appId: "demo", bundlePath: bundle, version: "1.0.0" })).installed, true);
   return { paths, o, state, close: () => server.close() };
 }
 
@@ -60,6 +63,14 @@ test("check finds nothing new, then dry-runs a newer release and records the res
   ]);
 });
 
+test("a check of a listed release is not forced: version-limited patches are skipped as incompatible, like update", async (t) => {
+  const s = await setup(true);
+  t.after(s.close);
+  s.state.latest = "v3.0.0";
+  const [a] = (await checkUpdates(s.o)).apps;
+  assert.deepEqual([a.status, a.listed, a.applied, a.total, a.failing, a.aborted, a.error], ["update", true, 1, 1, [], undefined, undefined]);
+});
+
 test("update installs the newest release with the saved selection; an unlisted one needs force", async (t) => {
   const s = await setup();
   t.after(s.close);
@@ -77,6 +88,7 @@ test("checkMessage words each outcome the way the notification shows it", () => 
   assert.equal(checkMessage(c), "Hydra 4.1.7 out, 5/5 patches apply");
   assert.equal(checkMessage({ ...c, applied: 4, failing: ["Recently downloaded sort"] }), "Hydra 4.1.7 out, 4/5 apply: Recently downloaded sort fails");
   assert.equal(checkMessage({ ...c, applied: 3, failing: ["A", "B"] }), "Hydra 4.1.7 out, 3/5 apply: A, B fail");
+  assert.equal(checkMessage({ ...c, listed: false, experimental: true }), "Hydra 4.1.7 out, experimental in your bundles (5/5 patches apply)");
   assert.equal(checkMessage({ ...c, aborted: "required patch failed" }), "Hydra 4.1.7 out, but its patch job fails: required patch failed");
   assert.equal(checkMessage({ ...c, status: "up to date", latest: "4.1.6" }), "Hydra 4.1.6 is up to date");
   assert.equal(checkMessage({ appId: "hydra", appName: "hydra", current: "4.1.6", status: "failed", error: "offline" }), "Couldn't check hydra: offline");
