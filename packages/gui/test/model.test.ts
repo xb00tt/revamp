@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AppCheck } from "@revamp/engine";
-import { badgeFor, checkFor, plain, formatBytes, initialToggles, optionFlags, pendingUpdates, progressLabel, reclaimable, selectionFlags, type AppRow, type AppsList, type PatchRow } from "../src/model.ts";
+import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, initialToggles, jobEvent, optionFlags, type PatchRow, pendingUpdates, plain, progressLabel, reclaimable, selectionFlags, startJob } from "../src/model.ts";
 
 const app = (appId: string, current: string | null): AppRow => ({ appId, name: appId, current, versions: [] });
 const check = (appId: string, status: AppCheck["status"], latest = "1.1.0"): AppCheck => ({ appId, appName: appId, current: "1.0.0", latest, status });
@@ -82,4 +82,65 @@ test("a re-patch after the check clears its new-patches notice", () => {
   assert.deepEqual(pendingUpdates(stale), []);
   const fresh = listWith(row("2026-01-01T00:00:00Z"), check("a", "patches", "1.0.0"), {});
   assert.deepEqual(pendingUpdates(fresh), ["a"]);
+});
+
+test("a job's log and progress build up from its notifications", () => {
+  let s = startJob(true, 0);
+  assert.deepEqual([s.percent, s.steps.download, s.lines], [0, "todo", []]);
+  s = jobEvent(s, "job.log", { id: 1, line: "Downloading demo.deb…" }, 1000);
+  s = jobEvent(s, "job.progress", { id: 1, step: "download", percent: 37 }, 1100);
+  s = jobEvent(s, "job.progress", { id: 1, step: "download", percent: 52 }, 1200);
+  assert.equal(s.steps.download, "active");
+  assert.equal(s.percent, 21); // download is 40% of a dry run
+  s = jobEvent(s, "job.progress", { id: 1, step: "download", percent: 100 }, 1300);
+  s = jobEvent(s, "job.progress", { id: 1, step: "extract" }, 2000);
+  assert.deepEqual([s.steps.download, s.steps.extract], ["done", "active"]);
+  s = jobEvent(s, "job.progress", { id: 1, step: "patch", patch: "Say ‮goodbye", index: 2, total: 4 }, 3000);
+  s = jobEvent(s, "job.ignored", { id: 1 }, 3100);
+  assert.equal(s.percent, 81); // download 40 + extract 35 + half of patch's 25, rounded down
+  assert.deepEqual(
+    s.lines.map((l) => [l.at, l.text]),
+    [
+      [1000, "Downloading demo.deb…"],
+      [1100, "Downloaded 37%"],
+      [1200, "Downloaded 52%"],
+      [1300, "Downloaded 100%"],
+      [3000, "Patching 2/4: Say goodbye"],
+    ],
+  );
+});
+
+test("download percentages are logged once per tenth", () => {
+  let s = startJob(false, 0);
+  for (const percent of [1, 4, 9, 10, 11, 19, 20, 55, 99, 100]) s = jobEvent(s, "job.progress", { step: "download", percent }, percent);
+  assert.deepEqual(s.lines.map((l) => l.text), ["Downloaded 1%", "Downloaded 10%", "Downloaded 20%", "Downloaded 55%", "Downloaded 99%", "Downloaded 100%"]);
+  assert.equal(s.percent, 30); // download is 30% of an install
+});
+
+test("finishing a job lists every named patch, notes and the summary", () => {
+  const s = finishJob(startJob(true, 0), {
+    result: {
+      appId: "hydra", appName: "Hydra", version: "4.1.7", untested: true, installed: false, dryRun: true, exitCode: 2, warnings: ["Hydra 4.1.7 is untested."], logs: [],
+      results: [
+        { name: "Disable self-update", status: "applied", required: true, internal: false },
+        { name: "(internal patch #4: Hydra locales)", status: "applied", required: false, internal: true },
+        { name: "Recently downloaded sort", status: "failed", required: false, internal: false, message: "fingerprint x: pattern found 0 matches" },
+        { name: "More like this ranking", status: "skipped", required: false, internal: false, message: 'dependency "y" failed' },
+        { name: "Hide Deals link", status: "incompatible", required: false, internal: false },
+      ],
+    },
+    report: "Hydra 4.1.7 (untested): 1/3 patches apply (dry run, nothing installed)\n  ✓ Disable self-update",
+  }, 9000);
+  assert.deepEqual([s.done, s.ok, s.percent, s.steps.patch, s.summary], [true, false, 100, "done", "Hydra 4.1.7 (untested): 1/3 patches apply (dry run, nothing installed)"]);
+  assert.deepEqual(s.lines.map((l) => [l.kind, l.text]), [
+    ["ok", "✓ Disable self-update (required)"],
+    ["fail", "✗ Recently downloaded sort: fingerprint x: pattern found 0 matches"],
+    ["fail", '– More like this ranking skipped: dependency "y" failed'],
+    ["warn", "Note: Hydra 4.1.7 is untested."],
+    ["summary", "Hydra 4.1.7 (untested): 1/3 patches apply (dry run, nothing installed)"],
+  ]);
+  const upToDate = finishJob(startJob(false, 0), { report: undefined, result: undefined, upToDate: "Heroic 2.22.4 is up to date" }, 5);
+  assert.deepEqual([upToDate.ok, upToDate.summary, upToDate.lines.at(-1)?.text], [true, "Heroic 2.22.4 is up to date", "Heroic 2.22.4 is up to date"]);
+  const failed = finishJob(startJob(false, 0), { error: "revamp serve stopped: crashed" }, 5);
+  assert.deepEqual([failed.ok, failed.summary, failed.lines.at(-1)?.kind], [false, "revamp serve stopped: crashed", "fail"]);
 });

@@ -1,5 +1,5 @@
 // What the screens show, as plain functions the Node tests can run (no React, no Tauri).
-import type { AppCheck, CheckResult, JobProgress, StorageItem } from "@revamp/engine";
+import type { AppCheck, CheckResult, JobProgress, PatchAppResult, StorageItem } from "@revamp/engine";
 
 export interface AppRow {
   appId: string;
@@ -102,3 +102,90 @@ export function formatBytes(bytes: number): string {
 }
 
 export const reclaimable = (items: StorageItem[]) => items.filter((i) => !i.keep).reduce((total, i) => total + i.bytes, 0);
+
+// A job's screen (dry run, patch, update), built from serve's job.log and job.progress notifications and the reply.
+export const JOB_STEPS: JobProgress["step"][] = ["download", "extract", "patch", "repack", "install"];
+const STEPS = JOB_STEPS;
+/** Share of the progress bar per step; a dry run stops after patching. */
+const WEIGHTS: Record<"dry" | "install", Record<JobProgress["step"], number>> = {
+  dry: { download: 40, extract: 35, patch: 25, repack: 0, install: 0 },
+  install: { download: 30, extract: 30, patch: 25, repack: 10, install: 5 },
+};
+
+export interface JobLine {
+  at: number;
+  kind: "info" | "ok" | "fail" | "warn" | "summary";
+  text: string;
+}
+
+export interface JobState {
+  dryRun: boolean;
+  started: number;
+  steps: Record<JobProgress["step"], "todo" | "active" | "done">;
+  /** Overall progress, 0–100. */
+  percent: number;
+  /** How far the active step is, 0–1. */
+  fraction: number;
+  /** The last download percent written to the log, to log it once per tenth. */
+  logged: number;
+  lines: JobLine[];
+  done: boolean;
+  ok: boolean;
+  summary: string;
+}
+
+export function startJob(dryRun: boolean, now: number): JobState {
+  const steps = Object.fromEntries(STEPS.map((s) => [s, "todo"])) as JobState["steps"];
+  return { dryRun, started: now, steps, percent: 0, fraction: 0, logged: -1, lines: [], done: false, ok: false, summary: "" };
+}
+
+function percentOf(s: JobState): number {
+  const w = WEIGHTS[s.dryRun ? "dry" : "install"];
+  return Math.round(STEPS.reduce((total, step) => total + (s.steps[step] === "done" ? w[step] : s.steps[step] === "active" ? w[step] * s.fraction : 0), 0));
+}
+
+/** One notification from `revamp serve` applied to the job; anything but job.log and job.progress is ignored. */
+export function jobEvent(s: JobState, method: string, params: unknown, now: number): JobState {
+  const p = (params ?? {}) as { line?: unknown } & Partial<JobProgress>;
+  const line = (kind: JobLine["kind"], text: string) => [...s.lines, { at: now, kind, text: plain(text) }];
+  if (method === "job.log" && typeof p.line === "string") return { ...s, lines: line("info", p.line) };
+  if (method !== "job.progress" || !p.step || !STEPS.includes(p.step)) return s;
+  const at = STEPS.indexOf(p.step);
+  const steps = Object.fromEntries(STEPS.map((step, i) => [step, i < at ? "done" : i === at ? "active" : s.steps[step]])) as JobState["steps"];
+  let next: JobState = { ...s, steps, fraction: s.steps[p.step] === "active" ? s.fraction : 0 };
+  if (p.step === "download" && typeof p.percent === "number") {
+    next.fraction = p.percent / 100;
+    if (s.logged < 0 || Math.floor(p.percent / 10) > Math.floor(s.logged / 10)) next = { ...next, logged: p.percent, lines: line("info", `Downloaded ${p.percent}%`) };
+  }
+  if (p.step === "patch" && p.patch && p.index && p.total) next = { ...next, fraction: (p.index - 1) / p.total, lines: line("info", `Patching ${p.index}/${p.total}: ${p.patch}`) };
+  return { ...next, percent: percentOf(next) };
+}
+
+export interface JobOutcome {
+  result?: PatchAppResult;
+  report?: string;
+  /** Set when there was nothing to do (an update with no newer release or bundle). */
+  upToDate?: string;
+  error?: string;
+}
+
+/** The job's end: each named patch's result, notes and the summary line (the first line of the CLI's report). */
+export function finishJob(s: JobState, outcome: JobOutcome, now: number): JobState {
+  const lines = [...s.lines];
+  const add = (kind: JobLine["kind"], text: string) => void lines.push({ at: now, kind, text: plain(text) });
+  const end = (ok: boolean, summary: string, percent = s.percent): JobState => ({ ...s, lines, done: true, ok, summary: plain(summary), percent });
+  if (outcome.error) return add("fail", outcome.error), end(false, outcome.error);
+  const r = outcome.result;
+  if (!r) return add("summary", outcome.upToDate ?? "Nothing to do"), end(true, outcome.upToDate ?? "Nothing to do", 100);
+  for (const x of r.results) {
+    if (x.status === "applied" && !x.internal) add("ok", `✓ ${x.name}${x.required ? " (required)" : ""}`);
+    else if (x.status === "failed") add("fail", `✗ ${x.name}${x.message ? `: ${x.message}` : ""}`);
+    else if (x.status === "skipped" && !x.internal) add("fail", `– ${x.name} skipped${x.message ? `: ${x.message}` : ""}`);
+  }
+  if (r.aborted) add("fail", `Stopped: ${r.aborted}`);
+  for (const w of r.warnings) add("warn", `Note: ${w}`);
+  const summary = outcome.report?.split("\n")[0] ?? `${r.appName} ${r.version}`;
+  add("summary", summary);
+  const steps = Object.fromEntries(STEPS.map((step) => [step, s.steps[step] === "todo" && !r.installed ? "todo" : "done"])) as JobState["steps"];
+  return { ...end(!r.aborted && r.exitCode === 0, summary, r.aborted ? s.percent : 100), steps: r.aborted ? s.steps : { ...steps, download: "done", extract: "done", patch: "done" } };
+}

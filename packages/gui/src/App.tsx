@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AppUpdate } from "@revamp/engine";
+import type { AppUpdate, JobProgress } from "@revamp/engine";
 import { AppDetail } from "./AppDetail.tsx";
-import { badgeFor, checkFor, pendingUpdates, plain, type AppsList } from "./model.ts";
-import { notifyDone } from "./platform.ts";
+import { JobView, type JobRequest } from "./JobView.tsx";
+import { badgeFor, checkFor, pendingUpdates, plain, progressLabel, type AppsList } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
 import { Sources } from "./Sources.tsx";
 import { Storage } from "./Storage.tsx";
@@ -15,6 +15,7 @@ export function App({ rpc }: { rpc: Rpc }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stopped, setStopped] = useState<string | null>(null);
+  const [job, setJob] = useState<JobRequest | null>(null);
 
   const refresh = useCallback(async () => {
     const next = await rpc.call<AppsList>("apps.list");
@@ -36,26 +37,45 @@ export function App({ rpc }: { rpc: Rpc }) {
       await refresh().catch(() => {});
     }
   };
-  const checkNow = () => task("Checking…", () => rpc.call("check.run"));
-  const updateAll = () =>
-    task("Updating…", async () => {
-      const failed: string[] = [];
-      for (const appId of pendingUpdates(list!)) {
-        const name = list!.apps.find((a) => a.appId === appId)!.name;
-        setBusy(`Updating ${name}… Keep Revamp open until this finishes.`);
-        try {
-          const { result, report } = (await rpc.call("job.update", { appId })) as AppUpdate & { report?: string };
-          if (result && (result.aborted || result.exitCode !== 0)) failed.push(`${name}: ${report?.split("\n")[0] ?? result.aborted ?? "some patches didn't apply"}`);
-        } catch (e) {
-          failed.push(`${appId}: ${(e as Error).message}`);
-        }
+  // The check's own log lines and download progress show in the sidebar's one-line status while it runs.
+  const checkNow = () =>
+    task("Checking…", async () => {
+      const stop = rpc.onNotification((method, params) => {
+        if (method === "job.log") setBusy((params as { line: string }).line);
+        else if (method === "job.progress") setBusy(progressLabel(params as JobProgress));
+      });
+      try {
+        await rpc.call("check.run");
+      } finally {
+        stop();
       }
-      if (failed.length) setError(failed.join("\n"));
-      await notifyDone(failed.length ? `Update all finished; ${failed.length} ${failed.length === 1 ? "app" : "apps"} had problems` : "Update all finished");
     });
+  const updateAll = () => {
+    const ids = pendingUpdates(list!);
+    const name = (appId: string) => list!.apps.find((a) => a.appId === appId)!.name;
+    setJob({
+      title: ids.length === 1 ? `Updating ${plain(name(ids[0]))}` : `Updating ${ids.length} apps`,
+      back: "Back to your apps",
+      runs: ids.map((appId) => ({
+        label: name(appId),
+        dryRun: false,
+        call: async () => {
+          const u = await rpc.call<AppUpdate & { report?: string }>("job.update", { appId });
+          return u.result ? { result: u.result, report: u.report } : { upToDate: `${u.appName} ${u.current} is up to date` };
+        },
+      })),
+    });
+  };
 
   if (stopped) return <p className="fatal">{plain(stopped)}</p>;
   if (!list || !view) return <p className="fatal">{plain(error ?? "Starting Revamp…")}</p>;
+  if (job) {
+    const done = () => {
+      setJob(null);
+      void refresh().catch(() => {});
+    };
+    return <JobView rpc={rpc} request={job} onDone={done} />;
+  }
   const pending = pendingUpdates(list);
   const selected = view.kind === "app" ? list.apps.find((a) => a.appId === view.appId) : undefined;
   return (
@@ -87,7 +107,9 @@ export function App({ rpc }: { rpc: Rpc }) {
           <button className={`nav ${view.kind === "storage" ? "sel" : ""}`} onClick={() => setView({ kind: "storage" })}>
             <span className="nav-title">Storage</span>
           </button>
-          <p className="muted">{busy ?? (list.lastCheck ? `Checked ${new Date(list.lastCheck.checkedAt).toLocaleString()}` : "Not checked yet")}</p>
+          <p className="muted status-line" title={busy ?? undefined}>
+            {plain(busy ?? (list.lastCheck ? `Checked ${new Date(list.lastCheck.checkedAt).toLocaleString()}` : "Not checked yet"))}
+          </p>
           <button className="small" disabled={busy !== null} onClick={checkNow}>
             Check now
           </button>
@@ -97,7 +119,7 @@ export function App({ rpc }: { rpc: Rpc }) {
         {error && <pre className="banner danger">{plain(error)}</pre>}
         {view.kind === "sources" && <Sources rpc={rpc} onChanged={refresh} />}
         {view.kind === "storage" && <Storage rpc={rpc} />}
-        {selected && <AppDetail key={selected.appId} rpc={rpc} app={selected} check={checkFor(list, selected.appId)} onChanged={refresh} />}
+        {selected && <AppDetail key={selected.appId} rpc={rpc} app={selected} check={checkFor(list, selected.appId)} onChanged={refresh} onRun={setJob} />}
       </main>
     </div>
   );

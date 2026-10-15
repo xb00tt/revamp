@@ -1,7 +1,7 @@
-import type { AppCheck, JobProgress, PatchAppResult, PatchResult } from "@revamp/engine";
+import type { AppCheck, PatchAppResult } from "@revamp/engine";
 import { useEffect, useState } from "react";
-import { initialToggles, optionFlags, plain, progressLabel, selectionFlags, type AppRow, type PatchRow, type Selection } from "./model.ts";
-import { notifyDone } from "./platform.ts";
+import type { JobRequest } from "./JobView.tsx";
+import { initialToggles, optionFlags, plain, selectionFlags, type AppRow, type PatchRow, type Selection } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
 
 interface Listing {
@@ -18,15 +18,11 @@ interface Outcome {
   report: string;
 }
 
-const failedOrSkipped = (r: PatchResult) => !r.internal && (r.status === "failed" || r.status === "skipped");
-
-export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRow; check: AppCheck | undefined; onChanged: () => Promise<void> }) {
+export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app: AppRow; check: AppCheck | undefined; onChanged: () => Promise<void>; onRun: (job: JobRequest) => void }) {
   const [version, setVersion] = useState<string | undefined>(app.current ?? undefined);
   const [listing, setListing] = useState<Listing | null>(null);
   const [toggles, setToggles] = useState<Record<string, boolean>>({});
   const [values, setValues] = useState<Record<string, Record<string, unknown>>>({});
-  const [progress, setProgress] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rollingBack, setRollingBack] = useState(false);
 
@@ -45,31 +41,22 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
   const experimental = !!listing?.app.versions[listing.version]?.experimental;
   const untested = listing ? !listing.listed : false;
 
-  async function run(dryRun: boolean) {
+  /** The job takes over the window (JobView); the app list is refreshed when the user comes back. */
+  function run(dryRun: boolean) {
     if (!listing) return;
-    setOutcome(null);
-    setError(null);
-    setProgress("Starting…");
-    const stop = rpc.onNotification((method, params) => method === "job.progress" && setProgress(progressLabel(params as JobProgress)));
-    try {
-      const out = await rpc.call<Outcome>("job.patch", {
-        appId: app.appId,
-        version: listing.version,
-        ...selectionFlags(listing.patches, toggles),
-        options: optionFlags(listing.patches, values),
-        force: untested || experimental,
-        dryRun,
-      });
-      setOutcome(out);
-      const head = plain(out.report.split("\n")[0]);
-      if (!dryRun) await onChanged();
-      await notifyDone(head);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      stop();
-      setProgress(null);
-    }
+    const params = {
+      appId: app.appId,
+      version: listing.version,
+      ...selectionFlags(listing.patches, toggles),
+      options: optionFlags(listing.patches, values),
+      force: untested || experimental,
+      dryRun,
+    };
+    onRun({
+      title: dryRun ? `Dry run: ${name} ${plain(listing.version)}` : `${name}: ${label}`,
+      back: `Back to ${name}`,
+      runs: [{ label: app.name, dryRun, call: () => rpc.call<Outcome>("job.patch", params) }],
+    });
   }
 
   const skip = (v: string | null) => rpc.call("check.skip", { appId: app.appId, version: v }).then(onChanged, (e: Error) => setError(e.message));
@@ -80,25 +67,6 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
     return rpc.call("install.rollback", { appId: app.appId }).then(onChanged, (e: Error) => setError(e.message)).finally(() => setRollingBack(false));
   };
   const name = plain(app.name);
-
-  if (outcome && (outcome.result.aborted || outcome.result.results.some(failedOrSkipped))) {
-    return (
-      <section>
-        <h2>
-          {name} {plain(outcome.result.version)}: {outcome.result.aborted ? "the job stopped" : "some patches didn't apply"}
-        </h2>
-        <p className="muted">{outcome.result.installed ? `Installed anyway, without the patches marked ✗ or –.` : `Nothing changed in your installed ${name}.`}</p>
-        <pre className="report">{plain(outcome.report)}</pre>
-        <div className="row-actions">
-          <button className="primary" onClick={() => setOutcome(null)}>
-            Back to patch selection
-          </button>
-          <button onClick={() => void navigator.clipboard.writeText(plain(outcome.report))}>Copy report</button>
-        </div>
-        <p className="muted">Send the copied report to the bundle's author: it names the patch, the step that failed and the file.</p>
-      </section>
-    );
-  }
 
   const current = app.versions.find((v) => v.version === app.current);
   const isUpdate = !!app.current && listing?.version !== app.current;
@@ -139,7 +107,7 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
         <>
           <label className="field">
             <span className="muted">Version</span>
-            <select value={listing.version} disabled={progress !== null} onChange={(e) => setVersion(e.target.value)}>
+            <select value={listing.version} onChange={(e) => setVersion(e.target.value)}>
               {versions.map((v) => (
                 <option key={v} value={v}>
                   {plain(v)} — {listing.app.versions[v] ? (listing.app.versions[v].experimental ? "experimental in your bundle" : "in your bundle") : "not in your bundle yet"}
@@ -152,10 +120,9 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
             {listing.patches
               .filter((p) => p.compatible)
               .map((p) => {
-                const r = outcome?.result.results.find((x) => x.name === p.name);
                 return (
                   <li key={p.name}>
-                    <input type="checkbox" checked={!!toggles[p.name]} disabled={p.required || progress !== null} onChange={(e) => setToggles({ ...toggles, [p.name]: e.target.checked })} aria-label={p.name} />
+                    <input type="checkbox" checked={!!toggles[p.name]} disabled={p.required} onChange={(e) => setToggles({ ...toggles, [p.name]: e.target.checked })} aria-label={p.name} />
                     <div>
                       <div>
                         {plain(p.name)} {p.required && <span className="pill">required</span>}
@@ -173,20 +140,16 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
                           </label>
                         );
                       })}
-                      {r && <div className={`status ${r.status}`}>{r.status === "applied" ? "✓ applied" : plain(r.status)}</div>}
                     </div>
                   </li>
                 );
               })}
           </ul>
           <div className="row-actions">
-            <button className="primary" disabled={progress !== null} onClick={() => run(false)}>
+            <button className="primary" onClick={() => run(false)}>
               {label}
             </button>
-            <button disabled={progress !== null} onClick={() => run(true)}>
-              Dry run
-            </button>
-            <span className="muted">{progress ? `${progress} Keep Revamp open until this finishes.` : (outcome ? plain(outcome.report.split("\n")[0]) : "")}</span>
+            <button onClick={() => run(true)}>Dry run</button>
           </div>
         </>
       )}
@@ -199,7 +162,7 @@ export function AppDetail({ rpc, app, check, onChanged }: { rpc: Rpc; app: AppRo
                 <span>
                   {plain(v.version)} <span className="muted">· {new Date(v.installedAt).toLocaleString()} · {plain(v.bundle.name)} {plain(v.bundle.version)}{v.untested ? " · untested" : ""}</span>
                 </span>
-                {v.version === app.current ? <span className="pill accent">current</span> : v.version === rollbackTo && <button disabled={rollingBack || progress !== null} onClick={rollback}>Roll back</button>}
+                {v.version === app.current ? <span className="pill accent">current</span> : v.version === rollbackTo && <button disabled={rollingBack} onClick={rollback}>Roll back</button>}
               </li>
             ))}
           </ul>

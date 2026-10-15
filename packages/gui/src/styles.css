@@ -52,3 +52,21 @@ h3 { font-size: 14px; font-weight: 500; margin: 0 0 6px; }
 .preview { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
 .hash, .report { display: block; font: 12px/1.5 ui-monospace, monospace; background: var(--side); padding: 6px 8px; border-radius: 6px; word-break: break-all; white-space: pre-wrap; }
 .fatal { padding: 24px; }
+.status-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job { display: flex; flex-direction: column; gap: 10px; height: 100vh; padding: 18px 22px; }
+.job-head { display: flex; align-items: baseline; justify-content: space-between; }
+.job-now { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.5em; }
+.bar { height: 8px; border-radius: 4px; background: var(--side); overflow: hidden; flex: none; }
+.bar > div { height: 100%; background: var(--accent); transition: width 0.3s; }
+.bar > div.bad { background: var(--danger); }
+.steps { display: flex; gap: 18px; list-style: none; padding: 0; margin: 0; font-size: 13px; flex: none; }
+.steps .todo { color: var(--muted); }
+.steps .active { color: var(--accent); font-weight: 500; }
+.steps .done { color: var(--ok); }
+.log { flex: 1; min-height: 0; overflow: auto; font: 12px/1.6 ui-monospace, monospace; background: var(--side); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
+.log .at { color: var(--muted); }
+.log .ok { color: var(--ok); }
+.log .fail { color: var(--danger); }
+.log .warn { color: var(--warn); }
+.log .summary { font-weight: 500; margin-top: 4px; }
+.job-foot { display: flex; gap: 8px; align-items: center; min-height: 34px; flex: none; }
