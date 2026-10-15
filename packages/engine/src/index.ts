@@ -40,5 +40,6 @@ export {
   type SourceFetchOptions,
 } from "./bundle-sources.ts";
 export { listInstalls, rollback, uninstall, type InstalledApp } from "./install.ts";
+export { removeStorageItem, storageUsage, type StorageItem } from "./storage.ts";
 export { revampPaths, type Paths } from "./paths.ts";
 export { ENGINE_VERSION } from "./version.ts";
