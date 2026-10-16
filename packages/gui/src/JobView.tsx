@@ -3,7 +3,7 @@ import { finishJob, JOB_STEPS, jobEvent, plain, startJob, type JobLine, type Job
 import { notifyDone } from "./platform.ts";
 import type { Rpc } from "./rpc.ts";
 
-/** One job of a request: a patch or dry run, or one app of "Update all". */
+/** One job of a request: a patch or dry run. */
 export interface JobRun {
   label: string;
   dryRun: boolean;

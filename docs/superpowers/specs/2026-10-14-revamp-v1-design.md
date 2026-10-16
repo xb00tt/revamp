@@ -470,6 +470,7 @@ Hydra 4.1.7 (untested): 4/5 patches apply
 - The feature patch inserts `SimilarGames = globalThis.__revamp?.mount?.("hydra.similarGames", SimilarGames) ?? SimilarGames;` after `function SimilarGames(…) {…}`. The binding is mutable and only read at render time.
 - `mount` returns a wrapper component. It renders the extension's replacement (registered in `mounts["hydra.similarGames"]`, which receives `Original` as a prop) inside an error boundary that falls back to `Original` on any render error.
 - If the extension is missing or crashes, the stock UI shows.
+- A second mount, `hydra.similarGamesSettings`, is a top-level `const` before the root render; its slot is after the last Content preferences checkbox. The feature patches write registry markers (`similarGamesSteam`, `similarGamesRevamped`) that the extension reads.
 
 **Types.**
 - `bundles/official/hydra/extension/registry.d.ts` declares the registry entries. React types come from `@types/react` matching Hydra's React major; component props are hand-written.
@@ -512,6 +513,7 @@ Hydra 4.1.7 (untested): 4/5 patches apply
   4. Record the result in `last-check.json`.
   5. `notify-send "Revamp" "Hydra 4.1.7 out, 5/5 patches apply"` (or "…, 4/5 apply: Recently downloaded sort fails" / "…, not yet in your bundles").
 - **The user confirms.** `revamp update [app]` re-runs the job for that version with the saved selection. An unlisted or experimental version needs `--force`.
+- Re-patching an installed app asks before turning on new patches (rule in the 2026-10-16 design §6.1). `update` gains `--yes`.
 - **`revamp timer enable|disable`** writes the units and runs `systemctl --user enable --now` (or the disable equivalent).
 
 ### 7.4 CI [M4]
@@ -529,12 +531,12 @@ Stable versions must apply 100%. Experimental versions report only.
 
 | Command | Milestone |
 |---|---|
-| `revamp patch <app> [--version v] [--force] [--enable "<patch>"]… [--disable "<patch>"]… [--option "<patch>:<key>=<value>"]… [--bundle file] [--dry-run]` | M1 (flags as needed; `--option` M2) |
+| `revamp patch <app> [--version v] [--force] [--enable "<patch>"]… [--disable "<patch>"]… [--option "<patch>:<key>=<value>"]… [--bundle file] [--dry-run] [--yes]` | M1 (flags as needed; `--option` M2) |
 | `revamp list`: installed apps, versions, `current`, applied patches | M1 |
 | `revamp rollback <app>`: point `current` at the previous version | M1 |
 | `revamp uninstall <app>`: remove the installs, desktop entry and selection (confirm prompt) | M1 |
 | `revamp patches <app> [--version v]`: patches, defaults, required, options, compatibility | M2 |
-| `revamp sources add/list/remove`, `revamp check [--notify]`, `revamp update [app] [--force]`, `revamp timer enable/disable` | M4 |
+| `revamp sources add/list/remove`, `revamp check [--notify]`, `revamp update [app] [--force] [--yes]`, `revamp timer enable/disable` | M4 |
 | `revamp serve`: JSON-RPC 2.0 over stdio (§9) | M5 |
 
 Flags passed to `patch` are saved into `~/.config/revamp/apps/<app>.json`, so `update` reproduces the last install.
@@ -544,11 +546,11 @@ Flags passed to `patch` are saved into `~/.config/revamp/apps/<app>.json`, so `u
 - **Engine:** the `revamp` binary ships as a Tauri `externalBin` sidecar (`revamp-x86_64-unknown-linux-gnu`). It is spawned with `@tauri-apps/plugin-shell` `Command.sidecar("revamp", ["serve"])`.
 - **Protocol:**
   - One JSON-RPC message per line on stdin/stdout, with stderr going to the log.
-  - Methods mirror `engine/api`: `apps.list`, `patches.list`, `selection.get/set`, `job.patch`, `job.update`, `install.rollback`, `check.run`, `sources.*`.
+  - Methods mirror `engine/api`: `apps.list`, `patches.list` (also returns `ask`, the new patches to ask about), `selection.get/set`, `job.patch`, `install.rollback`, `check.run`, `sources.*`.
   - Notifications: `job.progress {step, percent}`, `job.patchResult`, `job.done`.
 - **Screens:**
   - **App list:** installed versions and an update badge.
-  - **App detail:** version picker, patch toggles and options, a Patch/Update button with progress and per-patch results, and rollback.
+  - **App detail:** version picker, patch toggles and options, the new-patches banner, a Patch/Update button with progress and per-patch results, and rollback. There is no "Update all".
 - **Notifications:** `revamp check` notifications get an "Open Revamp" action that launches the GUI.
 - **Packaging:** installed per-user without root, via `npm run gui:install`.
 - **Rust:** rustup is installed only at M5, after asking the owner.
@@ -569,7 +571,9 @@ Flags passed to `patch` are saved into `~/.config/revamp/apps/<app>.json`, so `u
 | Hide Deals link | heroic | 2.22.3 | M2 | `dealsLink.replace("null")` (demo patch on minified code; the owner may swap in a different one). |
 | Hydra extension loader (internal) | hydra | 4.1.6 | M3 | §6 loader |
 | Registry hooks (internal, about 12) | hydra | 4.1.6 | M3 | §6 registry |
-| More like this ranking | hydra | 4.1.6 | M3 | Mount wrapper on `SimilarGames` + extension (four Steam-tag queries plus `/similar` in parallel, hit-count ranking, per-game session cache, shared tags and library badge on cards, limit 12) |
+| Steam bridge (internal) | hydra | 4.1.6 | M3 | Runs in Hydra's main process: inserts `__revampSteamBridge.registerSteamBridge(registerEvent, logger);` after `registerEvent` and adds `revampGetSteamAppTags` / `revampGetSteamRecommendations` to the preload |
+| More like this (Steam) | hydra | 4.1.6 | M3 | Feature patch: sets the `similarGamesSteam` registry marker, the extension adds a Steam-recommendations row through `mount()` |
+| More like this (Revamped) | hydra | 4.1.6 | M3 | Feature patch: sets the `similarGamesRevamped` marker, the extension adds the ranked row (six catalogue searches on the game's Steam store tags (6/5/5/4/3/2 tags, Roguelike and Roguelite dropped), hit-count ranking, no `/similar` padding, per-game session cache, shared tags and library badge, limit 12) |
 
 The Heroic app definition (`installDir`, `executable`, `desktopFile`) is filled in from the real `.deb` listing in the M2 plan.
 

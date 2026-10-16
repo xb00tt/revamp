@@ -5,13 +5,14 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { describe } from "@revamp/engine";
-import { buildExtension } from "./extension.ts";
+import { buildExtension, buildSteamBridge } from "./extension.ts";
 import { bundleJson, changelogFor } from "./metadata.ts";
 
 const here = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.url));
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
 const hydraExtension = await buildExtension(here("src/hydra/extension/index.tsx"));
+const steamBridge = await buildSteamBridge(here("src/hydra/steam-bridge/main.ts"));
 const out = here("dist/official.mjs");
 await build({
   entryPoints: [here("src/index.ts")],
@@ -20,7 +21,10 @@ await build({
   platform: "neutral",
   target: "es2024",
   outfile: out,
-  define: { __REVAMP_HYDRA_EXTENSION__: JSON.stringify(hydraExtension) },
+  define: {
+    __REVAMP_HYDRA_EXTENSION__: JSON.stringify(hydraExtension),
+    __REVAMP_HYDRA_STEAM_BRIDGE__: JSON.stringify(steamBridge),
+  },
 });
 // describe runs the built bundle in the sandbox, like every engine read of a bundle.
 const description = await describe(out);

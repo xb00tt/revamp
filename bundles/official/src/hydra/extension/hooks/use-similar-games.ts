@@ -4,6 +4,7 @@ import { levelDBService, logger, orderBy, type DownloadSource } from "../app.ts"
 import {
   fetchSimilarGames,
   getCachedSimilarGames,
+  isSimilarGamesQueryEligible,
   resolveSimilarGames,
   type SimilarGame,
   type SimilarGamesApi,
@@ -17,15 +18,14 @@ export const useSimilarGames = (query: SimilarGamesQuery) => {
   const [isLoading, setIsLoading] = useState(false);
   const [resultQueryKey, setResultQueryKey] = useState("");
   const requestIdRef = useRef(0);
-  const { objectId, shop } = query;
-  const queryKey = `${shop}:${objectId}`;
-  const isEligible =
-    Boolean(objectId) && (shop === "steam" || shop === "launchbox");
-  const cached = getCachedSimilarGames({ objectId, shop });
+  const { objectId, shop, source } = query;
+  const queryKey = `${source}:${shop}:${objectId}`;
+  const isEligible = isSimilarGamesQueryEligible({ objectId, shop, source });
+  const cached = getCachedSimilarGames({ objectId, shop, source });
 
   useEffect(() => {
     const requestId = ++requestIdRef.current;
-    const stableQuery: SimilarGamesQuery = { objectId, shop };
+    const stableQuery: SimilarGamesQuery = { objectId, shop, source };
     const cachedGames = getCachedSimilarGames(stableQuery);
 
     setResultQueryKey(queryKey);
@@ -43,6 +43,10 @@ export const useSimilarGames = (query: SimilarGamesQuery) => {
         globalThis.window.electron.hydraApi.get<unknown>(path, options),
       post: (path, options) =>
         globalThis.window.electron.hydraApi.post<unknown>(path, options),
+      getSteamTags: (objectId) =>
+        globalThis.window.electron.revampGetSteamAppTags(objectId),
+      getSteamRecommendations: (objectId) =>
+        globalThis.window.electron.revampGetSteamRecommendations(objectId),
     };
 
     const loadSimilarGames = async () => {
@@ -77,7 +81,7 @@ export const useSimilarGames = (query: SimilarGamesQuery) => {
     return () => {
       requestIdRef.current += 1;
     };
-  }, [isEligible, objectId, queryKey, shop]);
+  }, [isEligible, objectId, queryKey, shop, source]);
 
   const hasCurrentResults = resultQueryKey === queryKey;
 

@@ -56,10 +56,6 @@ export function releaseNote(c: AppCheck): string {
 /** Bundle-supplied text for the screen: no bidi overrides, zero-width or control characters (newline and tab stay). */
 export const plain = (text = "") => text.replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2069\uFEFF]/g, "");
 
-/** Apps that "Update all" would touch: a newer release or new patches, never a skipped release. */
-export const pendingUpdates = (list: AppsList): string[] =>
-  list.apps.filter((a) => a.current && ["release", "patches"].includes(badgeFor(a, checkFor(list, a.appId)).kind)).map((a) => a.appId);
-
 export interface PatchRow {
   name: string;
   description: string;
@@ -79,6 +75,8 @@ export interface Listing {
   bundle: { name: string; version: string };
   patches: PatchRow[];
   selection: Selection;
+  /** New patches the window must ask about before patching this version. */
+  ask: string[];
 }
 
 /**
@@ -98,10 +96,18 @@ export interface Selection {
 }
 
 /** Whether each patch starts switched on: required ones always, then the saved choice, then the patch's default. */
-export function initialToggles(patches: PatchRow[], saved: Selection): Record<string, boolean> {
-  const on = (p: PatchRow) => p.required || saved.enable.includes(p.name) || (p.default && !saved.disable.includes(p.name));
+export function initialToggles(patches: PatchRow[], saved: Selection, ask: string[] = []): Record<string, boolean> {
+  const on = (p: PatchRow) => p.required || (!ask.includes(p.name) && (saved.enable.includes(p.name) || (p.default && !saved.disable.includes(p.name))));
   return Object.fromEntries(patches.filter((p) => p.compatible).map((p) => [p.name, on(p)]));
 }
+
+/** The banner above the patch list, when the bundle adds patches this install never answered for. */
+export const newPatchesNote = (l: Listing, appName: string): string =>
+  `${plain(l.bundle.name)} ${plain(l.bundle.version)} adds ${l.ask.length} new ${l.ask.length === 1 ? "patch" : "patches"} for your ${plain(appName)} ${plain(l.version)}. Turn them on?`;
+
+/** Turn on ticks the asked-about patches; Keep off leaves every choice as it is. */
+export const answerNewPatches = (toggles: Record<string, boolean>, ask: string[], turnOn: boolean): Record<string, boolean> =>
+  turnOn ? { ...toggles, ...Object.fromEntries(ask.map((n) => [n, true])) } : toggles;
 
 /** The toggles as the job's enable/disable lists; required patches are left to the engine. */
 export function selectionFlags(patches: PatchRow[], toggles: Record<string, boolean>): { enable: string[]; disable: string[] } {

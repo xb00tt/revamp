@@ -5,12 +5,16 @@ export { loadSelection, type Selection } from "./config.ts";
 
 export {
   describe,
+  installedPatchNames,
   listPatches,
+  newPatchesToAsk,
   newestStable,
   patchApp,
   patchCounts,
   type JobProgress,
   type JobStep,
+  type NewPatchesAnswer,
+  type NewPatchesQuestion,
   type PatchAppOptions,
   type PatchAppResult,
   type PatchListing,

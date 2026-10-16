@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -39,24 +39,31 @@ const game = (objectId: string) => ({
   downloadSources: objectId === "D" ? ["source-1"] : [],
 });
 // The current game (100) has six specific tags. Each catalogue search returns games for the tags it was given;
-// /similar returns games without tags. Expected rank: A (3 hits), B (2), then the 1-hit games by the fork's
-// tie-breaks: D (has a download source), C (seen before F), F; E (0 hits) is owned, so it goes last.
+// Expected rank: A (3 hits), B (2), then the 1-hit games by the fork's tie-breaks: D (has a download source),
+// C (seen before F), F; C is owned, so it goes last.
 const searches: Record<string, string[]> = { "6:popularity": ["A"], "5:popularity": ["B", "A"], "5:reviewScore": ["A", "C"], "4:popularity": ["B", "D", "F"] };
 (globalThis as { window?: unknown }).window = {
   electron: {
     hydraApi: {
-      get: async (path: string) =>
-        path === "/games/steam/100" ? { tags: [10, 11, 12, 13, 14, 15] } : path === "/catalogue/steam/100/similar" ? [game("E"), game("C")] : null,
+      get: async (path: string) => (path === "/catalogue/steam/100/similar" ? [game("E")] : null),
       post: async (_path: string, { data }: { data: { tags: number[]; sortBy: string } }) => ({
         edges: (searches[`${data.tags.length}:${data.sortBy}`] ?? []).map(game),
       }),
     },
+    revampGetSteamAppTags: async () => [10, 11, 12, 13, 14, 15],
+    revampGetSteamRecommendations: async () => recommendations,
+    updateUserPreferences: async (preferences: unknown) => void saved.push(preferences),
   },
 };
 
+let recommendations: unknown[] = [];
+const saved: unknown[] = [];
+const steamOne = { objectId: "S1", title: "Steam One", tagIds: [11], coverImageUrl: "s1.jpg", libraryImageUrl: null };
+
 const element = (type: string) => (props: Record<string, unknown>) => React.createElement(type, props, props.children as never);
+let userPreferences: Record<string, unknown> | null = null;
 function hydra(overrides: Record<string, unknown> = {}) {
-  const state = { catalogueSearch: { steamUserTags: { en: { Roguelike: 10, Deckbuilder: 11, Strategy: 12 } } } };
+  const state = { catalogueSearch: { steamUserTags: { en: { Roguelike: 10, Deckbuilder: 11, Strategy: 12 } } }, userPreferences: { value: userPreferences } };
   Object.assign(revamp().registry, {
     React,
     jsxRuntime: require("react/jsx-runtime"),
@@ -65,13 +72,14 @@ function hydra(overrides: Record<string, unknown> = {}) {
     useEmblaCarousel: () => [() => {}, undefined],
     VerticalCoverCard: element("card"),
     Skeleton: element("skeleton"),
+    CheckboxField: element("checkbox"),
     ChevronLeftIcon: element("left"),
     ChevronRightIcon: element("right"),
     buildGameDetailsPath: (g: { objectId: string }) => `/game/steam/${g.objectId}`,
     levelDBService: { values: async () => [{ id: "source-1", createdAt: "2026-01-01" }] },
     orderBy: (items: unknown[]) => items,
     logger: { error: () => {} },
-    useLibrary: () => ({ library: [{ shop: "steam", objectId: "E" }] }),
+    useLibrary: () => ({ library: [{ shop: "steam", objectId: "C" }] }),
     useAppDispatch: () => () => {},
     useAppSelector: (select: (s: typeof state) => unknown) => select(state),
     setTags: (tags: unknown) => ({ type: "setTags", payload: tags }),
@@ -80,36 +88,114 @@ function hydra(overrides: Record<string, unknown> = {}) {
   });
 }
 
-async function renderSimilarGames() {
+async function renderSimilarGames(shop = "steam", objectId = "100") {
   const Stock = () => React.createElement("stock");
   const Mounted = revamp().mount("hydra.similarGames", Stock) as React.FunctionComponent<{ objectId: string; shop: string }>;
   let renderer: ReturnType<typeof create> | undefined;
   await act(async () => {
-    renderer = create(React.createElement(Mounted, { objectId: "100", shop: "steam" }));
+    renderer = create(React.createElement(Mounted, { objectId, shop }));
   });
   await act(() => new Promise((resolve) => setTimeout(resolve, 10))); // let the searches settle
   return renderer!.root;
 }
 
+const markers = { similarGamesSteam: true, similarGamesRevamped: true };
+const titles = (root: Awaited<ReturnType<typeof renderSimilarGames>>) => root.findAll((n) => n.type === "h2").map((h) => h.props.children);
+
+beforeEach(() => {
+  userPreferences = null;
+  recommendations = [steamOne];
+  saved.length = 0;
+  hydra();
+  for (const key of Object.keys(markers)) delete revamp().registry[key];
+});
+
 test("the extension installs mount() and its stylesheet when it loads, before Hydra exists", () => {
   assert.equal(typeof revamp().mount, "function");
   assert.equal(typeof revamp().mounts["hydra.similarGames"], "function");
+  assert.equal(typeof revamp().mounts["hydra.similarGamesSettings"], "function");
   assert.ok(styles[0].includes(".similar-games__caption"));
 });
 
-test("More like this ranks by shared tags, captions the shared tags, and badges owned games last", async () => {
-  hydra();
+test("with both markers the rows are Steam, Revamped, Original, titled from the extension's strings", async () => {
+  Object.assign(revamp().registry, markers);
   const root = await renderSimilarGames();
   assert.equal(root.findAll((n) => n.type === "stock").length, 0);
+  assert.deepEqual(titles(root), ["More like this (Steam)", "More like this (Revamped)", "More like this (Original)"]);
+  const sections = root.findAll((n) => n.type === "section");
+  const first = sections[0] as unknown as { findAll(test: (n: { type: unknown }) => boolean): Array<{ props: Record<string, any> }> };
+  assert.deepEqual(first.findAll((n) => n.type === "card").map((c) => c.props.gameTitle), ["Steam One"]);
+});
+
+test("Revamped ranks by shared Steam tags, captions them, and badges owned games last", async () => {
+  Object.assign(revamp().registry, { similarGamesRevamped: true });
+  const root = await renderSimilarGames();
   const cards = root.findAll((n) => n.type === "card");
-  assert.deepEqual(cards.map((c) => c.props.gameTitle), ["Game A", "Game B", "Game D", "Game C", "Game F", "Game E"]);
+  assert.deepEqual(cards.map((c) => c.props.gameTitle).slice(0, 5), ["Game A", "Game B", "Game D", "Game F", "Game C"]);
   const captions = root.findAll((n) => n.type === "p").map((p) => p.props.children);
-  assert.deepEqual(captions, [...Array(5).fill("Roguelike · Deckbuilder"), ""]);
+  assert.deepEqual(captions.slice(0, 5), Array(5).fill("Roguelike · Deckbuilder"));
   const badges = root.findAll((n) => n.type === "span" && n.props.className === "similar-games__badge");
   assert.deepEqual(badges.map((b) => b.props.children), ["already_in_library"]);
 });
 
+test("a row switched off in Settings is hidden", async () => {
+  Object.assign(revamp().registry, markers);
+  userPreferences = { showSimilarGamesRevamped: false };
+  hydra();
+  assert.deepEqual(titles(await renderSimilarGames()), ["More like this (Steam)", "More like this (Original)"]);
+});
+
+test("only the Revamped marker: no Steam row", async () => {
+  Object.assign(revamp().registry, { similarGamesRevamped: true });
+  assert.deepEqual(titles(await renderSimilarGames()), ["More like this (Revamped)", "More like this (Original)"]);
+});
+
+test("without a marker the stock section renders", async () => {
+  const root = await renderSimilarGames();
+  assert.equal(root.findAll((n) => n.type === "stock").length, 1);
+  assert.equal(titles(root).length, 0);
+});
+
+test("Launchbox games get only the Original row", async () => {
+  Object.assign(revamp().registry, markers);
+  assert.deepEqual(titles(await renderSimilarGames("launchbox")), ["More like this (Original)"]);
+});
+
+test("Steam knowing no similar games shows the empty state", async () => {
+  Object.assign(revamp().registry, { similarGamesSteam: true });
+  recommendations = [];
+  const root = await renderSimilarGames("steam", "101"); // a fresh id: the Steam list for 100 is cached by now
+  const empty = root.findAll((n) => n.props.role === "status");
+  assert.equal(empty[0].props.children, "no_similar_games");
+});
+
+async function renderSettings() {
+  const Settings = revamp().mount("hydra.similarGamesSettings", () => null) as React.FunctionComponent;
+  let renderer: ReturnType<typeof create> | undefined;
+  await act(async () => {
+    renderer = create(React.createElement(Settings));
+  });
+  return renderer!.root;
+}
+
+test("the settings list one checkbox per patched row and save only their own key", async () => {
+  Object.assign(revamp().registry, { similarGamesSteam: true });
+  const root = await renderSettings();
+  const boxes = () => root.findAll((n) => n.type === "checkbox");
+  assert.deepEqual(boxes().map((b) => b.props.label), ["Show “More like this (Steam)” on game pages", "Show “More like this (Original)” on game pages"]);
+  assert.deepEqual(boxes().map((b) => b.props.checked), [true, true]);
+  await act(async () => boxes()[0].props.onChange());
+  assert.deepEqual(saved, [{ showSimilarGamesSteam: false }]);
+  assert.equal(boxes()[0].props.checked, false);
+});
+
+test("without a marker the settings render nothing", async () => {
+  const root = await renderSettings();
+  assert.equal(root.findAll((n) => n.type === "checkbox").length, 0);
+});
+
 test("a missing registry entry shows the stock section instead", async (t) => {
+  Object.assign(revamp().registry, markers);
   hydra({ useEmblaCarousel: undefined });
   t.after(() => hydra());
   const errors = t.mock.method(console, "error", () => {});

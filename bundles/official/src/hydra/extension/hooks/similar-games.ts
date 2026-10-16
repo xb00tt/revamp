@@ -1,4 +1,5 @@
 import type { GameShop } from "../app.ts";
+import type { SteamRecommendation } from "../../steam-bridge/main.ts";
 
 export const SIMILAR_GAMES_LIMIT = 12;
 
@@ -40,6 +41,13 @@ export const GENERIC_STEAM_TAG_IDS: ReadonlySet<number> = new Set([
   12095, // Sexual Content
 ]);
 
+// Tags /catalogue/search returns nothing for, even alone (checked 2026-10-16).
+// One of them in an AND query empties it.
+const UNSEARCHABLE_STEAM_TAG_IDS: ReadonlySet<number> = new Set([
+  1716, // Roguelike
+  3959, // Roguelite
+]);
+
 // Specific tags first, then generic ones; vote order kept inside each group.
 export const orderTagsSpecificFirst = (tags: number[]) => [
   ...tags.filter((tag) => !GENERIC_STEAM_TAG_IDS.has(tag)),
@@ -61,18 +69,23 @@ export const SIMILAR_GAMES_TAG_QUERIES: readonly SimilarGamesTagQuery[] = [
   { size: 5, sortBy: "popularity" },
   { size: 5, sortBy: "reviewScore" },
   { size: 4, sortBy: "popularity" },
+  { size: 3, sortBy: "popularity" },
+  { size: 2, sortBy: "popularity" },
 ];
 
 const CACHE_LIMIT = 50;
 const similarGamesCache = new Map<string, SimilarGame[]>();
 
+const cacheKey = (query: SimilarGamesQuery) =>
+  `${query.source}:${similarGameKey(query)}`;
+
 export const getCachedSimilarGames = (query: SimilarGamesQuery) =>
-  similarGamesCache.get(similarGameKey(query));
+  similarGamesCache.get(cacheKey(query));
 
 export const clearSimilarGamesCache = () => similarGamesCache.clear();
 
 const cacheSimilarGames = (query: SimilarGamesQuery, games: SimilarGame[]) => {
-  const key = similarGameKey(query);
+  const key = cacheKey(query);
 
   similarGamesCache.delete(key);
   similarGamesCache.set(key, games);
@@ -95,10 +108,30 @@ export const getSimilarGamesSectionState = (
   return "empty";
 };
 
+// Steam: Steam's own recommendations. Revamped: Hydra catalogue search on the
+// game's Steam tags. Original: Hydra's /similar endpoint, as upstream.
+export type SimilarGamesSource = "steam" | "revamped" | "original";
+
+// Display order on the game page.
+export const SIMILAR_GAMES_SOURCES: readonly SimilarGamesSource[] = [
+  "steam",
+  "revamped",
+  "original",
+];
+
 export interface SimilarGamesQuery {
   objectId: string;
   shop: GameShop;
+  source: SimilarGamesSource;
 }
+
+export const isSimilarGamesQueryEligible = ({
+  objectId,
+  shop,
+  source,
+}: SimilarGamesQuery) =>
+  Boolean(objectId) &&
+  (shop === "steam" || (shop === "launchbox" && source === "original"));
 
 export interface SimilarGame {
   objectId: string;
@@ -140,13 +173,10 @@ export type SimilarGamesPost = (
 export interface SimilarGamesApi {
   get: SimilarGamesGet;
   post: SimilarGamesPost;
+  // Steam store tag ids in vote order.
+  getSteamTags: (objectId: string) => Promise<number[]>;
+  getSteamRecommendations: (objectId: string) => Promise<SteamRecommendation[]>;
 }
-
-const isSupportedShop = (
-  shop: GameShop
-): shop is Exclude<GameShop, "custom"> => {
-  return shop === "steam" || shop === "launchbox";
-};
 
 const optionalString = (value: unknown) => {
   return typeof value === "string" ? value : null;
@@ -197,7 +227,9 @@ const normalizeSimilarGame = (value: unknown): SimilarGame | null => {
 export const similarGameKey = (game: { shop: string; objectId: string }) =>
   `${game.shop}:${game.objectId}`;
 
-const normalizeCandidates = (response: unknown, query: SimilarGamesQuery) => {
+type GameIdentity = Pick<SimilarGamesQuery, "objectId" | "shop">;
+
+const normalizeCandidates = (response: unknown, query: GameIdentity) => {
   if (!Array.isArray(response)) {
     throw new TypeError("Invalid similar games response");
   }
@@ -213,7 +245,7 @@ const normalizeCandidates = (response: unknown, query: SimilarGamesQuery) => {
 
 export const normalizeSimilarGamesResponse = (
   response: unknown,
-  query: SimilarGamesQuery
+  query: GameIdentity
 ) => {
   const seen = new Set<string>();
 
@@ -243,8 +275,7 @@ interface RankedCandidate {
 // a game decides its sharedTagIds and its firstSeen position.
 export const rankSimilarGames = (
   tagResults: TagQueryResult[],
-  similarResponse: unknown,
-  query: SimilarGamesQuery
+  query: GameIdentity
 ): SimilarGame[] => {
   const candidates = new Map<string, RankedCandidate>();
 
@@ -276,12 +307,6 @@ export const rankSimilarGames = (
     }
   }
 
-  if (Array.isArray(similarResponse)) {
-    for (const game of normalizeCandidates(similarResponse, query)) {
-      add(game, false);
-    }
-  }
-
   return [...candidates.values()]
     .sort(
       (a, b) =>
@@ -296,20 +321,6 @@ export const rankSimilarGames = (
 
 const steamCoverImageUrl = (objectId: string) =>
   `https://shared.steamstatic.com/store_item_assets/steam/apps/${objectId}/library_600x900_2x.jpg`;
-
-const fetchGameTags = async (
-  query: SimilarGamesQuery,
-  get: SimilarGamesGet
-) => {
-  const response = await get(
-    `/games/${query.shop}/${encodeURIComponent(query.objectId)}`,
-    { needsAuth: false }
-  );
-  const tags = (response as { tags?: unknown } | null)?.tags;
-  if (!Array.isArray(tags)) return [];
-
-  return tags.map(Number).filter(Number.isInteger);
-};
 
 const withSteamCover = (edge: unknown) => {
   const candidate = edge as { objectId?: unknown; shop?: unknown } | null;
@@ -359,7 +370,10 @@ const fetchTagMatches = async (
 ): Promise<TagQueryResult[]> => {
   let tags: number[];
   try {
-    tags = orderTagsSpecificFirst(await fetchGameTags(query, api.get));
+    const steamTags = await api.getSteamTags(query.objectId);
+    tags = orderTagsSpecificFirst(
+      steamTags.filter((tag) => !UNSEARCHABLE_STEAM_TAG_IDS.has(tag))
+    );
   } catch {
     return [];
   }
@@ -376,37 +390,75 @@ const fetchTagMatches = async (
   );
 };
 
-const fetchSimilarEndpoint = (
+const fetchOriginal = async (
   query: SimilarGamesQuery,
-  get: SimilarGamesGet,
+  api: SimilarGamesApi,
   downloadSourceIds: string[]
 ) =>
-  get(
-    `/catalogue/${query.shop}/${encodeURIComponent(query.objectId)}/similar`,
-    {
-      params: { take: SIMILAR_GAMES_LIMIT, downloadSourceIds },
-      needsAuth: false,
-    }
-  ).catch(() => []);
+  normalizeSimilarGamesResponse(
+    await api.get(
+      `/catalogue/${query.shop}/${encodeURIComponent(query.objectId)}/similar`,
+      {
+        params: { take: SIMILAR_GAMES_LIMIT, downloadSourceIds },
+        needsAuth: false,
+      }
+    ),
+    query
+  );
+
+const fetchRevamped = async (
+  query: SimilarGamesQuery,
+  api: SimilarGamesApi,
+  downloadSourceIds: string[]
+) =>
+  rankSimilarGames(await fetchTagMatches(query, api, downloadSourceIds), query);
+
+const fetchSteam = async (
+  query: SimilarGamesQuery,
+  api: SimilarGamesApi
+): Promise<SimilarGame[]> => {
+  const [tags, recommendations] = await Promise.all([
+    api.getSteamTags(query.objectId),
+    api.getSteamRecommendations(query.objectId),
+  ]);
+  const orderedTags = orderTagsSpecificFirst(tags);
+
+  return recommendations
+    .filter(({ objectId }) => objectId !== query.objectId)
+    .slice(0, SIMILAR_GAMES_LIMIT)
+    .map((recommendation) => ({
+      objectId: recommendation.objectId,
+      shop: "steam",
+      title: recommendation.title,
+      iconUrl: null,
+      libraryHeroImageUrl: null,
+      libraryImageUrl: recommendation.libraryImageUrl,
+      coverImageUrl: recommendation.coverImageUrl,
+      logoImageUrl: null,
+      downloadSources: [],
+      sharedTagIds: orderedTags.filter((tag) =>
+        recommendation.tagIds.includes(tag)
+      ),
+    }));
+};
+
+const FETCHERS = {
+  steam: fetchSteam,
+  revamped: fetchRevamped,
+  original: fetchOriginal,
+};
 
 export const fetchSimilarGames = async (
   query: SimilarGamesQuery,
   api: SimilarGamesApi,
   downloadSourceIds: string[] = []
 ) => {
-  if (!isSupportedShop(query.shop) || !query.objectId) return [];
+  if (!isSimilarGamesQueryEligible(query)) return [];
 
   const cached = getCachedSimilarGames(query);
   if (cached) return cached;
 
-  const [tagResults, similarResponse] = await Promise.all([
-    query.shop === "steam"
-      ? fetchTagMatches(query, api, downloadSourceIds)
-      : Promise.resolve([]),
-    fetchSimilarEndpoint(query, api.get, downloadSourceIds),
-  ]);
-
-  const results = rankSimilarGames(tagResults, similarResponse, query);
+  const results = await FETCHERS[query.source](query, api, downloadSourceIds);
   if (results.length > 0) cacheSimilarGames(query, results);
 
   return results;

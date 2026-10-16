@@ -3,11 +3,10 @@
 // touch the registry until a mounted component renders.
 import { mount } from "@revamp/sdk/shims/mount";
 import { revamp } from "@revamp/sdk/shims/registry";
-import type { GameShop } from "./app.ts";
-import { SimilarGames } from "./pages/game-details/similar-games/similar-games.tsx";
+import { SimilarGamesRows } from "./pages/game-details/similar-games/similar-games-rows.tsx";
+import { SimilarGamesSettings } from "./pages/settings/similar-games-settings.tsx";
 
 const root = revamp();
 root.mount ??= mount as (id: string, original: unknown) => unknown;
-root.mounts["hydra.similarGames"] = ({ objectId, shop }: { objectId: string; shop: GameShop }) => (
-  <SimilarGames objectId={objectId} shop={shop} />
-);
+root.mounts["hydra.similarGames"] = SimilarGamesRows;
+root.mounts["hydra.similarGamesSettings"] = SimilarGamesSettings;

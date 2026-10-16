@@ -58,6 +58,6 @@ test(
 
     const dryRun = revamp("patch", "hydra", "--dry-run");
     assert.equal(dryRun.status, 0, dryRun.stderr);
-    assert.match(dryRun.stdout, /^Hydra 4\.1\.6: 6\/6 patches apply \(dry run, nothing installed\)$/m);
+    assert.match(dryRun.stdout, /^Hydra 4\.1\.6: 7\/7 patches apply \(dry run, nothing installed\)$/m);
   },
 );

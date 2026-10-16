@@ -3,7 +3,7 @@
 // instead of from @renderer/*, react-i18next, react-router-dom and the UI libraries Hydra bundles.
 import type { ReactNode } from "react";
 import { jsx } from "@revamp/sdk/shims/jsx-runtime";
-import { need } from "@revamp/sdk/shims/registry";
+import { need, revamp } from "@revamp/sdk/shims/registry";
 
 // Types: the parts of Hydra's types the ported code relies on.
 export type GameShop = "steam" | "launchbox" | "custom";
@@ -17,6 +17,7 @@ interface LibraryGame {
 }
 interface HydraState {
   catalogueSearch: { steamUserTags: Record<string, Record<string, number> | undefined> };
+  userPreferences: { value: Record<string, unknown> | null };
 }
 interface EmblaApi {
   canScrollPrev(): boolean;
@@ -60,12 +61,15 @@ export const levelDBService = {
   values: (sublevel: string) => need<{ values(sublevel: string): Promise<unknown[]> }>("levelDBService").values(sublevel),
 };
 
+export const registryEntries = () => revamp().registry;
+
 // Components: thin wrappers that render the app's own component.
 const component =
   <P,>(name: string) =>
   (props: P) =>
     jsx(need(name), props) as ReactNode;
 export const VerticalCoverCard = component<VerticalCoverCardProps>("VerticalCoverCard");
+export const CheckboxField = component<{ label: ReactNode; checked: boolean; onChange: () => void }>("CheckboxField");
 export const Skeleton = component<{ className?: string }>("Skeleton");
 export const ChevronLeftIcon = component<{ size?: number }>("ChevronLeftIcon");
 export const ChevronRightIcon = component<{ size?: number }>("ChevronRightIcon");

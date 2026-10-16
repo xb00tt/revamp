@@ -37,3 +37,20 @@ export async function buildExtension(entry: string): Promise<string> {
   });
   return result.outputFiles[0].text;
 }
+
+/** Compiles the Steam bridge (runs in Hydra's main process) to one plain script that defines `__revampSteamBridge`. */
+export async function buildSteamBridge(entry: string): Promise<string> {
+  const result = await build({
+    entryPoints: [entry],
+    bundle: true,
+    format: "iife",
+    globalName: "__revampSteamBridge",
+    platform: "node",
+    target: "es2022",
+    minify: false,
+    legalComments: "none",
+    write: false,
+  });
+  // esbuild opens with a "use strict" directive; mid-file in Hydra's main it would be a stray statement.
+  return result.outputFiles[0].text.replace(/^"use strict";\n/, "");
+}

@@ -1,4 +1,4 @@
-// Ported from the fork's src/renderer/src/hooks/similar-games.test.ts (xb00tt/hydra 3f098e9f);
+// Ported from the fork's src/renderer/src/hooks/similar-games.test.ts (xb00tt/hydra 561b4721);
 // only the import paths and the last test's file path and import names changed.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -145,26 +145,26 @@ const searchEdge = (objectId: string) => ({
   downloadSources: ["Source"],
 });
 
+type SteamRecommendations = Awaited<
+  ReturnType<SimilarGamesApi["getSteamRecommendations"]>
+>;
+
 interface ApiCall {
-  method: "get" | "post";
+  method: "get" | "post" | "steamTags" | "steamRecommendations";
   path: string;
   options: unknown;
 }
 
 const createApi = (handlers: {
-  tags?: unknown | (() => Promise<unknown>);
   search?: (tags: number[], sortBy: string) => unknown;
   similar?: unknown | (() => Promise<unknown>);
+  steamTags?: number[] | (() => Promise<number[]>);
+  recommendations?: SteamRecommendations;
 }) => {
   const calls: ApiCall[] = [];
   const api: SimilarGamesApi = {
     get: async (path, options) => {
       calls.push({ method: "get", path, options });
-      if (path.startsWith("/games/")) {
-        return typeof handlers.tags === "function"
-          ? handlers.tags()
-          : handlers.tags;
-      }
       return typeof handlers.similar === "function"
         ? handlers.similar()
         : (handlers.similar ?? []);
@@ -178,12 +178,24 @@ const createApi = (handlers: {
       if (!handlers.search) throw new Error("unexpected search");
       return { edges: handlers.search(tags, sortBy), count: 0 };
     },
+    getSteamTags: async (objectId) => {
+      calls.push({ method: "steamTags", path: objectId, options: null });
+      return typeof handlers.steamTags === "function"
+        ? handlers.steamTags()
+        : (handlers.steamTags ?? []);
+    },
+    getSteamRecommendations: async (objectId) => {
+      calls.push({
+        method: "steamRecommendations",
+        path: objectId,
+        options: null,
+      });
+      return handlers.recommendations ?? [];
+    },
   };
 
   return { api, calls };
 };
-
-const paths = (calls: ApiCall[]) => calls.map((call) => call.path);
 
 const searchCalls = (calls: ApiCall[]) =>
   calls
@@ -197,38 +209,95 @@ const searchCalls = (calls: ApiCall[]) =>
       return { tags, sortBy, take };
     });
 
-describe("fetchSimilarGames", () => {
-  const steamQuery = { objectId: "current", shop: "steam" as const };
+const ids = (games: SimilarGame[]) => games.map(({ objectId }) => objectId);
+
+describe("fetchSimilarGames: original", () => {
+  const query = {
+    objectId: "current",
+    shop: "steam" as const,
+    source: "original" as const,
+  };
+
+  beforeEach(() => clearSimilarGamesCache());
+
+  it("uses only Hydra's similar endpoint", async () => {
+    const { api, calls } = createApi({
+      similar: [game("a"), game("current"), game("b")],
+    });
+
+    const results = await fetchSimilarGames(query, api, ["source-a"]);
+
+    assert.deepEqual(ids(results), ["a", "b"]);
+    assert.deepEqual(calls, [
+      {
+        method: "get",
+        path: "/catalogue/steam/current/similar",
+        options: {
+          params: { take: 12, downloadSourceIds: ["source-a"] },
+          needsAuth: false,
+        },
+      },
+    ]);
+  });
+
+  it("works for launchbox games", async () => {
+    const { api, calls } = createApi({
+      similar: [game("result", { shop: "launchbox" })],
+    });
+
+    const results = await fetchSimilarGames(
+      { objectId: "game/id", shop: "launchbox", source: "original" },
+      api,
+      ["source-b", "source-a"]
+    );
+
+    assert.equal(results.length, 1);
+    assert.equal(calls[0].path, "/catalogue/launchbox/game%2Fid/similar");
+  });
+
+  it("does not request unsupported custom games", async () => {
+    const { api, calls } = createApi({});
+
+    const results = await fetchSimilarGames(
+      { objectId: "custom", shop: "custom", source: "original" },
+      api
+    );
+
+    assert.deepEqual(results, []);
+    assert.equal(calls.length, 0);
+  });
+});
+
+describe("fetchSimilarGames: revamped", () => {
+  const query = {
+    objectId: "current",
+    shop: "steam" as const,
+    source: "revamped" as const,
+  };
   // 21 (Adventure) and 4166 (Atmospheric) are generic and move to the back.
-  const tags = ["21", "1698", "1719", "5923", "1738", "4166", "7"];
+  const tags = [21, 1698, 1719, 5923, 1738, 4166, 7];
   const ordered = [1698, 1719, 5923, 1738, 7, 21, 4166];
 
   beforeEach(() => clearSimilarGamesCache());
 
-  it("runs four tag searches and the similar endpoint in parallel", async () => {
+  it("runs six tag searches on the game's Steam store tags", async () => {
     const { api, calls } = createApi({
-      tags: { tags },
+      steamTags: tags,
       search: (requested) => [searchEdge(`len-${requested.length}`)],
-      similar: [game("from-similar")],
     });
 
-    const results = await fetchSimilarGames(steamQuery, api, ["source-a"]);
+    const results = await fetchSimilarGames(query, api, ["source-a"]);
 
     assert.deepEqual(searchCalls(calls), [
       { tags: ordered.slice(0, 6), sortBy: "popularity", take: 15 },
       { tags: ordered.slice(0, 5), sortBy: "popularity", take: 15 },
       { tags: ordered.slice(0, 5), sortBy: "reviewScore", take: 15 },
       { tags: ordered.slice(0, 4), sortBy: "popularity", take: 15 },
+      { tags: ordered.slice(0, 3), sortBy: "popularity", take: 15 },
+      { tags: ordered.slice(0, 2), sortBy: "popularity", take: 15 },
     ]);
-    assert.deepEqual(paths(calls).slice(0, 2), [
-      "/games/steam/current",
-      "/catalogue/steam/current/similar",
-    ]);
+    assert.equal(calls.filter((call) => call.method === "get").length, 0);
     assert.deepEqual(calls[1].options, {
-      params: { take: 12, downloadSourceIds: ["source-a"] },
-      needsAuth: false,
-    });
-    assert.deepEqual(calls[2].options, {
       data: {
         take: 15,
         skip: 0,
@@ -247,10 +316,13 @@ describe("fetchSimilarGames", () => {
       needsAuth: false,
     });
     // len-5 was returned by two queries, so it outranks the single-hit games.
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["len-5", "len-6", "len-4", "from-similar"]
-    );
+    assert.deepEqual(ids(results), [
+      "len-5",
+      "len-6",
+      "len-4",
+      "len-3",
+      "len-2",
+    ]);
     assert.equal(
       results[1].coverImageUrl,
       "https://shared.steamstatic.com/store_item_assets/steam/apps/len-6/library_600x900_2x.jpg"
@@ -261,147 +333,71 @@ describe("fetchSimilarGames", () => {
 
   it("requests only the queries the game has enough tags for", async () => {
     const { api, calls } = createApi({
-      tags: { tags: tags.slice(0, 5) },
+      steamTags: tags.slice(0, 4),
       search: () => [searchEdge("a")],
     });
 
-    await fetchSimilarGames(steamQuery, api);
+    await fetchSimilarGames(query, api);
 
     assert.deepEqual(
       searchCalls(calls).map(({ tags, sortBy }) => [tags.length, sortBy]),
       [
-        [5, "popularity"],
-        [5, "reviewScore"],
         [4, "popularity"],
+        [3, "popularity"],
+        [2, "popularity"],
       ]
     );
   });
 
-  it("drops non-numeric tag ids before tiering", async () => {
+  it("drops tags the catalogue search never matches", async () => {
+    // 1716 Roguelike and 3959 Roguelite return no catalogue results.
     const { api, calls } = createApi({
-      tags: { tags: ["x", "1698", "1719", "5923", "1738", "1.5"] },
+      steamTags: [1716, 1698, 3959, 1719],
       search: () => [searchEdge("a")],
     });
 
-    await fetchSimilarGames(steamQuery, api);
+    await fetchSimilarGames(query, api);
 
     assert.deepEqual(
       searchCalls(calls).map(({ tags }) => tags),
-      [[1698, 1719, 5923, 1738]]
+      [[1698, 1719]]
     );
   });
 
-  it("uses the similar endpoint alone when the game has fewer than four tags", async () => {
-    const { api, calls } = createApi({
-      tags: { tags: ["21", "1698", "1719"] },
-      similar: [game("fallback")],
-    });
+  it("returns nothing when the game has fewer than two tags", async () => {
+    const { api, calls } = createApi({ steamTags: [1698] });
 
-    const results = await fetchSimilarGames(steamQuery, api);
-
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["fallback"]
-    );
-    assert.deepEqual(paths(calls), [
-      "/games/steam/current",
-      "/catalogue/steam/current/similar",
-    ]);
+    assert.deepEqual(await fetchSimilarGames(query, api), []);
+    assert.equal(searchCalls(calls).length, 0);
   });
 
-  it("uses the similar endpoint alone when the tag lookup fails", async () => {
-    const { api, calls } = createApi({
-      tags: () => Promise.reject(new Error("offline")),
-      similar: [game("fallback")],
-    });
-
-    const results = await fetchSimilarGames(steamQuery, api);
-
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["fallback"]
-    );
-    assert.equal(calls.filter((call) => call.method === "post").length, 0);
-  });
-
-  it("uses the similar endpoint alone when every tag search fails", async () => {
+  it("returns nothing when the Steam tag lookup fails", async () => {
     const { api } = createApi({
-      tags: { tags },
-      search: () => {
-        throw new Error("search down");
-      },
-      similar: [game("fallback")],
+      steamTags: () => Promise.reject(new Error("offline")),
     });
 
-    const results = await fetchSimilarGames(steamQuery, api);
-
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["fallback"]
-    );
+    assert.deepEqual(await fetchSimilarGames(query, api), []);
   });
 
   it("keeps the other searches when one tag search fails", async () => {
     const { api } = createApi({
-      tags: { tags },
+      steamTags: tags,
       search: (requested) => {
         if (requested.length === 6) throw new Error("search down");
         return [searchEdge(`len-${requested.length}`)];
       },
     });
 
-    const results = await fetchSimilarGames(steamQuery, api);
+    const results = await fetchSimilarGames(query, api);
 
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["len-5", "len-4"]
-    );
+    assert.deepEqual(ids(results), ["len-5", "len-4", "len-3", "len-2"]);
   });
 
-  it("keeps tag matches when the similar endpoint fails", async () => {
-    const { api } = createApi({
-      tags: { tags },
-      search: () => [searchEdge("tagged")],
-      similar: () => Promise.reject(new Error("similar down")),
-    });
-
-    const results = await fetchSimilarGames(steamQuery, api);
-
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["tagged"]
-    );
-  });
-
-  it("uses the similar endpoint alone for launchbox games", async () => {
-    const { api, calls } = createApi({
-      similar: [game("result", { shop: "launchbox" })],
-    });
-
-    const results = await fetchSimilarGames(
-      { objectId: "game/id", shop: "launchbox" },
-      api,
-      ["source-b", "source-a"]
-    );
-
-    assert.equal(results.length, 1);
-    assert.deepEqual(calls, [
-      {
-        method: "get",
-        path: "/catalogue/launchbox/game%2Fid/similar",
-        options: {
-          params: { take: 12, downloadSourceIds: ["source-b", "source-a"] },
-          needsAuth: false,
-        },
-      },
-    ]);
-  });
-
-  it("does not request unsupported custom games", async () => {
+  it("is not available for launchbox games", async () => {
     const { api, calls } = createApi({});
 
     const results = await fetchSimilarGames(
-      { objectId: "custom", shop: "custom" },
+      { objectId: "game", shop: "launchbox", source: "revamped" },
       api
     );
 
@@ -411,46 +407,139 @@ describe("fetchSimilarGames", () => {
 
   it("returns cached results without calling the API again", async () => {
     const { api, calls } = createApi({
-      tags: { tags },
+      steamTags: tags,
       search: () => [searchEdge("a")],
     });
 
-    const first = await fetchSimilarGames(steamQuery, api);
+    const first = await fetchSimilarGames(query, api);
     const callCount = calls.length;
-    const second = await fetchSimilarGames(steamQuery, api);
+    const second = await fetchSimilarGames(query, api);
 
     assert.equal(second, first);
     assert.equal(calls.length, callCount);
-    assert.equal(getCachedSimilarGames(steamQuery), first);
+    assert.equal(getCachedSimilarGames(query), first);
+  });
+
+  it("caches each source separately", async () => {
+    const { api } = createApi({
+      steamTags: tags,
+      search: () => [searchEdge("a")],
+    });
+
+    await fetchSimilarGames(query, api);
+
+    assert.equal(
+      getCachedSimilarGames({ ...query, source: "original" }),
+      undefined
+    );
   });
 
   it("does not cache empty results", async () => {
-    const { api, calls } = createApi({ tags: { tags }, search: () => [] });
+    const { api, calls } = createApi({ steamTags: tags, search: () => [] });
 
-    await fetchSimilarGames(steamQuery, api);
+    await fetchSimilarGames(query, api);
     const callCount = calls.length;
-    await fetchSimilarGames(steamQuery, api);
+    await fetchSimilarGames(query, api);
 
     assert.equal(calls.length, callCount * 2);
-    assert.equal(getCachedSimilarGames(steamQuery), undefined);
+    assert.equal(getCachedSimilarGames(query), undefined);
   });
 
   it("evicts the oldest entry past fifty games", async () => {
     const { api } = createApi({
-      tags: { tags },
+      steamTags: tags,
       search: () => [searchEdge("a")],
     });
 
     for (let index = 0; index < 51; index += 1) {
-      await fetchSimilarGames({ objectId: `g-${index}`, shop: "steam" }, api);
+      await fetchSimilarGames({ ...query, objectId: `g-${index}` }, api);
     }
 
     assert.equal(
-      getCachedSimilarGames({ objectId: "g-0", shop: "steam" }),
+      getCachedSimilarGames({ ...query, objectId: "g-0" }),
       undefined
     );
-    assert.ok(getCachedSimilarGames({ objectId: "g-1", shop: "steam" }));
-    assert.ok(getCachedSimilarGames({ objectId: "g-50", shop: "steam" }));
+    assert.ok(getCachedSimilarGames({ ...query, objectId: "g-1" }));
+    assert.ok(getCachedSimilarGames({ ...query, objectId: "g-50" }));
+  });
+});
+
+describe("fetchSimilarGames: steam", () => {
+  const query = {
+    objectId: "current",
+    shop: "steam" as const,
+    source: "steam" as const,
+  };
+  const recommendation = (objectId: string, tagIds: number[] = []) => ({
+    objectId,
+    title: `Game ${objectId}`,
+    tagIds,
+    coverImageUrl: `https://example.com/${objectId}-cover.jpg`,
+    libraryImageUrl: `https://example.com/${objectId}-header.jpg`,
+  });
+
+  beforeEach(() => clearSimilarGamesCache());
+
+  it("lists Steam's recommendations in Steam's order, skipping the game itself", async () => {
+    const { api, calls } = createApi({
+      steamTags: [21, 1698],
+      recommendations: [
+        recommendation("b"),
+        recommendation("current"),
+        recommendation("a"),
+      ],
+    });
+
+    const results = await fetchSimilarGames(query, api);
+
+    assert.deepEqual(ids(results), ["b", "a"]);
+    assert.deepEqual(results[0], {
+      objectId: "b",
+      shop: "steam",
+      title: "Game b",
+      iconUrl: null,
+      libraryHeroImageUrl: null,
+      libraryImageUrl: "https://example.com/b-header.jpg",
+      coverImageUrl: "https://example.com/b-cover.jpg",
+      logoImageUrl: null,
+      downloadSources: [],
+      sharedTagIds: [],
+    });
+    assert.equal(calls.filter((call) => call.method === "get").length, 0);
+  });
+
+  it("shares tags in the current game's specific-first order", async () => {
+    // 21 Adventure is generic, so it follows the specific shared tags.
+    const { api } = createApi({
+      steamTags: [21, 1716, 1698, 1719],
+      recommendations: [recommendation("a", [1719, 21, 99, 1716])],
+    });
+
+    const [result] = await fetchSimilarGames(query, api);
+
+    assert.deepEqual(result.sharedTagIds, [1716, 1719, 21]);
+  });
+
+  it("caps the list at twelve", async () => {
+    const { api } = createApi({
+      recommendations: Array.from({ length: 15 }, (_, index) =>
+        recommendation(`r-${index}`)
+      ),
+    });
+
+    assert.equal((await fetchSimilarGames(query, api)).length, 12);
+  });
+
+  it("is not available for launchbox games", async () => {
+    const { api, calls } = createApi({});
+
+    const results = await fetchSimilarGames(
+      { objectId: "game", shop: "launchbox", source: "steam" },
+      api
+    );
+
+    assert.deepEqual(results, []);
+    assert.equal(calls.length, 0);
   });
 });
 
@@ -488,14 +577,10 @@ describe("rankSimilarGames", () => {
           edges: [searchEdge("c"), searchEdge("a"), searchEdge("b")],
         },
       ],
-      [],
       query
     );
 
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["a", "b", "c"]
-    );
+    assert.deepEqual(ids(results), ["a", "b", "c"]);
   });
 
   it("records the narrowest query's tags as shared tags", () => {
@@ -504,7 +589,6 @@ describe("rankSimilarGames", () => {
         { tags: [1, 2, 3, 4, 5, 6], edges: [searchEdge("a")] },
         { tags: [1, 2, 3, 4], edges: [searchEdge("a"), searchEdge("b")] },
       ],
-      [],
       query
     );
 
@@ -523,14 +607,10 @@ describe("rankSimilarGames", () => {
           ],
         },
       ],
-      [],
       query
     );
 
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["with-source", "no-source"]
-    );
+    assert.deepEqual(ids(results), ["with-source", "no-source"]);
   });
 
   it("counts a game repeated inside one response as a single hit", () => {
@@ -542,29 +622,10 @@ describe("rankSimilarGames", () => {
         },
         { tags: [1, 2, 3, 4], edges: [searchEdge("once")] },
       ],
-      [],
       query
     );
 
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["once", "twice"]
-    );
-  });
-
-  it("appends similar-endpoint games after tag matches without shared tags", () => {
-    const results = rankSimilarGames(
-      [{ tags: [1, 2, 3, 4], edges: [searchEdge("tagged")] }],
-      [game("tagged"), game("extra")],
-      query
-    );
-
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["tagged", "extra"]
-    );
-    assert.deepEqual(results[0].sharedTagIds, [1, 2, 3, 4]);
-    assert.deepEqual(results[1].sharedTagIds, []);
+    assert.deepEqual(ids(results), ["once", "twice"]);
   });
 
   it("drops the current game and caps at twelve", () => {
@@ -573,29 +634,11 @@ describe("rankSimilarGames", () => {
     );
     const results = rankSimilarGames(
       [{ tags: [1, 2, 3, 4], edges: [searchEdge("current"), ...edges] }],
-      [game("t-1"), game("more")],
       query
     );
 
     assert.equal(results.length, 12);
     assert.ok(results.every(({ objectId }) => objectId !== "current"));
-    assert.equal(
-      results.filter(({ objectId }) => objectId === "t-1").length,
-      1
-    );
-  });
-
-  it("treats a malformed similar response as empty", () => {
-    const results = rankSimilarGames(
-      [{ tags: [1, 2, 3, 4], edges: [searchEdge("a")] }],
-      {},
-      query
-    );
-
-    assert.deepEqual(
-      results.map(({ objectId }) => objectId),
-      ["a"]
-    );
   });
 });
 
