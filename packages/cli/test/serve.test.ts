@@ -8,7 +8,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { addSource, prepareSource, revampPaths } from "@revamp/engine";
+import { addSource, prepareSource, removeSource, revampPaths } from "@revamp/engine";
 import { demoDeb, writeDemoBundle } from "../../engine/test/helpers/demo.ts";
 import { createHandler } from "../src/serve.ts";
 
@@ -38,7 +38,7 @@ async function setup() {
   const notes: unknown[] = [];
   let next = 1;
   const call = async (method: string, params?: unknown) => (await handle(JSON.stringify({ jsonrpc: "2.0", id: next++, method, params }), (m, p) => notes.push({ m, p }))) as { id: number; result?: any; error?: { code: number; message: string } };
-  return { root, sha256, paths, handle, call, notes, close: () => server.close() };
+  return { root, sha256, bundle, paths, handle, call, notes, close: () => server.close() };
 }
 
 test("apps, patches, a patch job with progress, and the installed result", async (t) => {
@@ -46,6 +46,7 @@ test("apps, patches, a patch job with progress, and the installed result", async
   t.after(s.close);
   assert.deepEqual((await s.call("apps.list")).result, { apps: [{ appId: "demo", name: "Demo", current: null, versions: [] }], lastCheck: null, skipped: {} });
   const listing = (await s.call("patches.list", { appId: "demo" })).result;
+  assert.deepEqual(listing.ask, []);
   assert.deepEqual([listing.app.name, listing.version, listing.patches.map((p: { name: string }) => p.name), listing.selection], ["Demo", "1.0.0", ["Say goodbye"], { enable: [], disable: [], options: {} }]);
 
   const job = await s.call("job.patch", { appId: "demo", enable: ["Say goodbye"] });
@@ -66,7 +67,11 @@ test("apps, patches, a patch job with progress, and the installed result", async
   assert.deepEqual(check.result.apps.map((a: { status: string }) => a.status), ["up to date"]);
   assert.deepEqual(s.notes, [{ m: "job.log", p: { id: check.id, line: "Checking demo 1.0.0…" } }]);
   assert.equal((await s.call("check.last")).result.apps[0].appId, "demo");
-  assert.equal((await s.call("job.update", { appId: "demo" })).result.result, undefined);
+  assert.equal((await s.call("job.update", { appId: "demo" })).error?.code, -32601);
+  writeDemoBundle(s.bundle, { sha256: s.sha256, version: "1.1.0", extra: 'patches.push({ kind: "patch", name: "Extra", compatibleWith: [{ app }], execute() {} });' });
+  removeSource(s.paths, s.bundle);
+  addSource(s.paths, (await prepareSource(s.paths, s.bundle)).source);
+  assert.deepEqual((await s.call("patches.list", { appId: "demo" })).result.ask, ["Extra"]);
 });
 
 test("sources are added only from a preview this session made", async (t) => {

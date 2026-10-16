@@ -22,6 +22,7 @@ import {
 import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandidate, formatSources, printable } from "./format.ts";
 import { bundleFor } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
+import { newPatchesPrompt } from "./new-patches.ts";
 import { serve } from "./serve.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
 
@@ -31,7 +32,7 @@ const printError = (text: string) => console.error(printable(text));
 
 const USAGE = `Usage:
   revamp patch <app> [--version <v>] [--force] [--enable <patch>]... [--disable <patch>]...
-               [--option "<patch>:<key>=<value>"]... [--bundle <file>] [--dry-run]
+               [--option "<patch>:<key>=<value>"]... [--bundle <file>] [--dry-run] [--yes]
   revamp patches <app> [--version <v>] [--bundle <file>]
   revamp list
   revamp rollback <app>
@@ -40,7 +41,7 @@ const USAGE = `Usage:
   revamp sources list
   revamp sources remove <source>
   revamp check [--notify]
-  revamp update [<app>] [--force]
+  revamp update [<app>] [--force] [--yes]
   revamp timer enable|disable
   revamp serve        JSON-RPC 2.0 on stdin/stdout, for the GUI
 
@@ -114,6 +115,7 @@ async function main(argv: string[]): Promise<number> {
     if (!appId) throw new Error(`"${command}" needs an app, e.g. revamp ${command} hydra`);
     return appId;
   };
+  const confirmNewPatches = newPatchesPrompt({ yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, interactive: process.stdin.isTTY === true, confirm, print });
   switch (command) {
     case "patch": {
       const result = await patchApp({
@@ -125,6 +127,7 @@ async function main(argv: string[]): Promise<number> {
         disable: values.disable,
         options: values.option,
         dryRun: values["dry-run"],
+        confirmNewPatches,
         paths,
         log: (line) => printError(line),
       });
@@ -167,7 +170,7 @@ async function main(argv: string[]): Promise<number> {
       let code = 0;
       for (const id of ids) {
         try {
-          const u = await updateApp(id, { paths, force: values.force, log: (line) => printError(line) });
+          const u = await updateApp(id, { paths, force: values.force, confirmNewPatches, log: (line) => printError(line) });
           print(u.result ? formatPatchResult(u.result) : `${u.appName} ${u.current} is up to date`);
           code = Math.max(code, u.result?.exitCode ?? 0);
         } catch (e) {

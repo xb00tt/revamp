@@ -19,7 +19,8 @@ import {
   rollback,
   skipVersion,
   storageUsage,
-  updateApp,
+  installedPatchNames,
+  newPatchesToAsk,
   type BundleDescription,
   type JobProgress,
   type SourceCandidate,
@@ -101,7 +102,10 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
     "apps.list": () => apps(),
     "patches.list": async (p) => {
       const appId = str(p, "appId");
-      return { ...(await listPatches(await bundle(appId), appId, optStr(p, "version"))), selection: loadSelection(o.paths, appId) };
+      const listing = await listPatches(await bundle(appId), appId, optStr(p, "version"));
+      const selection = loadSelection(o.paths, appId);
+      const ask = newPatchesToAsk(listing.app, listing.patches, listing.version, installedPatchNames(o.paths, appId), selection, {}).map((x) => x.name);
+      return { ...listing, selection, ask };
     },
     "selection.get": (p) => loadSelection(o.paths, str(p, "appId")),
     "job.patch": async (p, id, notify) => {
@@ -119,10 +123,6 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
         ...report(id, notify),
       });
       return { result, report: formatPatchResult(result) };
-    },
-    "job.update": async (p, id, notify) => {
-      const update = await updateApp(str(p, "appId"), { ...o, force: optBool(p, "force"), ...report(id, notify) });
-      return { ...update, ...(update.result && { report: formatPatchResult(update.result) }) };
     },
     "install.rollback": (p) => ({ current: rollback(o.paths, str(p, "appId")) }),
     "check.run": (_p, id, notify) => checkUpdates({ ...o, ...report(id, notify) }),
