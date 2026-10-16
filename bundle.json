@@ -1,9 +1,9 @@
 {
   "name": "Revamp official",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "minEngine": "0.2.0",
-  "created_at": "2026-10-15T00:54:15.811Z",
-  "changelog": "- Hydra 4.1.6: **More like this ranking**. The game page's \"More like this\" ranks games by shared Steam tags, shows the shared tags and an \"Already in library\" badge, and caches results for the session.",
-  "download_url": "https://github.com/xb00tt/revamp/releases/download/bundle-v0.3.0/official.mjs",
-  "sha256": "4476b58d65ff90d34bf62cc7d1ac73c93ad3338f09a17c585b1eb3c40b7b21c4"
+  "created_at": "2026-10-16T18:59:58.653Z",
+  "changelog": "- Hydra 4.1.6: **More like this (Steam)**. A row with Steam's own recommendations for the game, the tags each shares with it and an \"Already in library\" badge.\n- Hydra 4.1.6: **More like this (Revamped)** replaces **More like this ranking**. It matches Hydra's catalogue on the game's Steam tags only (no longer padded with Hydra's own list), tries looser 3- and 2-tag searches for niche games, and skips Roguelike and Roguelite, which Hydra's search never matches.\n- With either one, Hydra's own row stays as \"More like this (Original)\", and Settings → Content & gameplay gets a checkbox for each row.",
+  "download_url": "https://github.com/xb00tt/revamp/releases/download/bundle-v0.4.0/official.mjs",
+  "sha256": "516544ae089e71308f975892a1f978c5a6f3d89022d38e5306c9ed875eabdfb0"
 }
