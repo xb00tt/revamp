@@ -1,12 +1,12 @@
 import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, type Stats } from "node:fs";
 import { join, resolve } from "node:path";
 import { assertAsarPath, readAsar, writeAsar } from "./asar.ts";
-import { loadSelection, resolveSelection, saveSelection } from "./config.ts";
+import { loadSelection, resolveSelection, saveSelection, type Selection } from "./config.ts";
 import { extractDeb, type EntryKind } from "./deb.ts";
 import { parseDesktopEntry } from "./desktop.ts";
 import { downloadVerified, fileSha256, releaseDigest } from "./download.ts";
 import type { PatchResult } from "./graph.ts";
-import { environmentWarnings, ICON_FILE, installStaged, lockApp, newStaging } from "./install.ts";
+import { environmentWarnings, ICON_FILE, installStaged, listInstalls, lockApp, newStaging } from "./install.ts";
 import { ASAR_PATH, patchesForApp, type AppInfo, type BundleDescription, type PatchInfo, type SandboxPatchOutput } from "./job.ts";
 import { assertSafeName, assertSafeRelativePath, releasePath, revampPaths, type Paths } from "./paths.ts";
 import { runSandboxed } from "./sandbox.ts";
@@ -31,6 +31,42 @@ export interface PatchAppOptions {
   log?: (line: string) => void;
   /** Structured progress for front ends that draw it (the GUI); `log` keeps the CLI's lines. */
   progress?: (event: JobProgress) => void;
+  /** Asked once when a re-patch finds default-on patches the install never had; without it they just follow their defaults. */
+  confirmNewPatches?: (question: NewPatchesQuestion) => Promise<NewPatchesAnswer>;
+}
+
+export interface NewPatchesQuestion {
+  bundle: { name: string; version: string };
+  appName: string;
+  version: string;
+  patches: Array<{ name: string; description: string }>;
+}
+/** "off-this-run" skips the patches now and saves nothing, so the next run asks again. */
+export type NewPatchesAnswer = "on" | "off" | "off-this-run";
+
+/** Patch names in the current install's receipt; undefined when the app has no current install. */
+export function installedPatchNames(paths: Paths, appId: string): string[] | undefined {
+  const inst = listInstalls(paths).find((a) => a.appId === appId);
+  if (!inst?.current) return undefined;
+  const v = inst.versions.find((x) => x.version === inst.current);
+  // A disabled or incompatible entry is in the receipt but was never installed.
+  return (v?.receipt.patches ?? []).flatMap((p) => (p.name && p.status !== "disabled" && p.status !== "incompatible" ? [p.name] : []));
+}
+
+/** Default-on, non-required patches the bundle offers for `version` that the install never had and nobody answered. */
+export function newPatchesToAsk(
+  app: AppInfo,
+  patches: PatchInfo[],
+  version: string,
+  installed: string[] | undefined,
+  saved: Selection,
+  flags: { enable?: string[]; disable?: string[] },
+): PatchInfo[] {
+  if (!installed) return [];
+  const answered = [...saved.enable, ...saved.disable, ...(flags.enable ?? []), ...(flags.disable ?? [])];
+  return patches.filter(
+    (p) => fitsVersion(p, app.id, version) && p.default && !app.required.includes(p.name) && !installed.includes(p.name) && !answered.includes(p.name),
+  );
 }
 
 export type JobStep = "download" | "extract" | "patch" | "repack" | "install";
@@ -127,6 +163,22 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
     options: o.options,
   });
   const selection = resolved.selection;
+  let runSelection: Selection | undefined;
+  if (o.confirmNewPatches) {
+    const ask = newPatchesToAsk(app, patchesForApp(desc.patches, app.id), version, installedPatchNames(paths, app.id), loadSelection(paths, app.id), o);
+    if (ask.length) {
+      const names = ask.map((p) => p.name);
+      const answer = await o.confirmNewPatches({
+        bundle: { name: bundleName, version: desc.manifest.version },
+        appName: app.name,
+        version,
+        patches: ask.map((p) => ({ name: p.name, description: p.description })),
+      });
+      if (answer === "on") selection.enable.push(...names);
+      else if (answer === "off") selection.disable.push(...names);
+      else runSelection = { ...selection, disable: [...selection.disable, ...names] };
+    }
+  }
   const warnings = [...resolved.warnings];
   if (untested) warnings.push(`${app.name} ${version} is untested: bundle "${bundleName}" doesn't list it, so it was verified only against GitHub's published SHA-256.`);
 
@@ -166,7 +218,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
       const outDir = join(staging, ".revamp-out");
       mkdirSync(outDir);
       const job = await runSandboxed<SandboxPatchOutput>(
-        { mode: "patch", bundle: bundlePath, staging, outDir, appId: app.id, version, selection, force: o.force ?? false, stockDesktop },
+        { mode: "patch", bundle: bundlePath, staging, outDir, appId: app.id, version, selection: runSelection ?? selection, force: o.force ?? false, stockDesktop },
         { read: [staging, bundlePath], write: [outDir] },
         { onEvent: (e) => progress({ step: "patch", ...patchEvent(e) }) },
       );
@@ -199,7 +251,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
           release: { asset, sha256, untested },
           bundle: { name: bundleName, version: desc.manifest.version, sha256: await fileSha256(bundlePath) },
           patches: job.results,
-          selection,
+          selection: runSelection ?? selection,
           installedAt: new Date().toISOString(),
         },
       });

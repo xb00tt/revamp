@@ -16,6 +16,7 @@ export interface UpdateOptions extends SourceFetchOptions {
   log?: (line: string) => void;
   /** Structured progress of the patch jobs a check or update runs (the GUI draws it). */
   progress?: PatchAppOptions["progress"];
+  confirmNewPatches?: PatchAppOptions["confirmNewPatches"];
 }
 
 export interface AppCheck {
