@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AppUpdate, JobProgress } from "@revamp/engine";
+import type { JobProgress } from "@revamp/engine";
 import { AppDetail } from "./AppDetail.tsx";
 import { JobView, type JobRequest } from "./JobView.tsx";
-import { badgeFor, checkFor, pendingUpdates, plain, progressLabel, type AppsList } from "./model.ts";
+import { badgeFor, checkFor, plain, progressLabel, type AppsList } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
 import { Sources } from "./Sources.tsx";
 import { Storage } from "./Storage.tsx";
@@ -50,23 +50,6 @@ export function App({ rpc }: { rpc: Rpc }) {
         stop();
       }
     });
-  const updateAll = () => {
-    const ids = pendingUpdates(list!);
-    if (ids.length === 0) return;
-    const name = (appId: string) => list!.apps.find((a) => a.appId === appId)!.name;
-    setJob({
-      title: ids.length === 1 ? `Updating ${plain(name(ids[0]))}` : `Updating ${ids.length} apps`,
-      back: "Back to your apps",
-      runs: ids.map((appId) => ({
-        label: plain(name(appId)),
-        dryRun: false,
-        call: async () => {
-          const u = await rpc.call<AppUpdate & { report?: string }>("job.update", { appId });
-          return u.result ? { result: u.result, report: u.report } : { upToDate: `${u.appName} ${u.current} is up to date` };
-        },
-      })),
-    });
-  };
 
   if (stopped) return <p className="fatal">{plain(stopped)}</p>;
   if (!list || !view) return <p className="fatal">{plain(error ?? "Starting Revamp…")}</p>;
@@ -74,7 +57,6 @@ export function App({ rpc }: { rpc: Rpc }) {
     setJob(null);
     void refresh().catch(() => {});
   };
-  const pending = pendingUpdates(list);
   const selected = view.kind === "app" ? list.apps.find((a) => a.appId === view.appId) : undefined;
   // The window stays mounted (hidden) under a job, so an app's chosen version, toggles and options survive it.
   return (
@@ -84,11 +66,6 @@ export function App({ rpc }: { rpc: Rpc }) {
         <aside className="side">
           <div className="side-head">
             <span className="muted">Your apps</span>
-            {pending.length > 0 && (
-              <button className="small" disabled={busy !== null} onClick={updateAll}>
-                Update all ({pending.length})
-              </button>
-            )}
           </div>
           {list.apps.map((a) => {
             const badge = badgeFor(a, checkFor(list, a.appId));

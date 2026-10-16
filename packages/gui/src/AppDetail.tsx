@@ -1,7 +1,7 @@
 import type { AppCheck, PatchAppResult } from "@revamp/engine";
 import { useEffect, useState } from "react";
 import type { JobRequest } from "./JobView.tsx";
-import { forVersion, initialToggles, optionFlags, plain, releaseNote, selectionFlags, type AppRow, type Listing } from "./model.ts";
+import { forVersion, answerNewPatches, initialToggles, newPatchesNote, optionFlags, plain, releaseNote, selectionFlags, type AppRow, type Listing } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
 
 interface Outcome {
@@ -15,6 +15,7 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
   const [toggles, setToggles] = useState<Record<string, boolean>>({});
   const [values, setValues] = useState<Record<string, Record<string, unknown>>>({});
   const [error, setError] = useState<string | null>(null);
+  const [answered, setAnswered] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
 
   useEffect(() => {
@@ -23,7 +24,8 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
       const l = forVersion(answer);
       setListing(l);
       setVersion(l.version);
-      setToggles(initialToggles(l.patches, l.selection));
+      setToggles(initialToggles(l.patches, l.selection, l.ask));
+      setAnswered(false);
       setValues(l.selection.options);
     }, (e: Error) => setError(e.message));
   }, [rpc, app.appId, version]);
@@ -108,6 +110,15 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
             </select>
           </label>
           {(untested || experimental) && <p className="muted warn">{untested ? "Untested: checked only against GitHub's SHA-256." : "Experimental in your bundle."}</p>}
+          {listing.ask.length > 0 && !answered && (
+            <div className="banner accent">
+              {newPatchesNote(listing, app.name)}{" "}
+              <div className="row-actions">
+                <button className="primary" onClick={() => { setToggles(answerNewPatches(toggles, listing.ask, true)); setAnswered(true); }}>Turn on</button>
+                <button onClick={() => { setToggles(answerNewPatches(toggles, listing.ask, false)); setAnswered(true); }}>Keep off</button>
+              </div>
+            </div>
+          )}
           <ul className="patches">
             {listing.patches
               .filter((p) => p.compatible)
@@ -139,7 +150,7 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
               })}
           </ul>
           <div className="row-actions">
-            <button className="primary" onClick={() => run(false)}>
+            <button className="primary" disabled={listing.ask.length > 0 && !answered} onClick={() => run(false)}>
               {label}
             </button>
             <button onClick={() => run(true)}>Dry run</button>

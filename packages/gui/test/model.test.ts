@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AppCheck } from "@revamp/engine";
-import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, forVersion, initialToggles, jobEvent, optionFlags, type Listing, type PatchRow, patchName, pendingUpdates, plain, progressLabel, reclaimable, releaseNote, selectionFlags, startJob } from "../src/model.ts";
+import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, forVersion, answerNewPatches, initialToggles, jobEvent, newPatchesNote, optionFlags, type Listing, type PatchRow, patchName, plain, progressLabel, reclaimable, releaseNote, selectionFlags, startJob } from "../src/model.ts";
 
 const app = (appId: string, current: string | null): AppRow => ({ appId, name: appId, current, versions: [] });
 const check = (appId: string, status: AppCheck["status"], latest = "1.1.0"): AppCheck => ({ appId, appName: appId, current: "1.0.0", latest, status });
@@ -17,12 +17,6 @@ test("badges tell a new release from new patches, a skip, a failure and nothing 
   // A check from before the app was updated says nothing about the version installed now.
   assert.deepEqual(badgeFor(app("a", "1.1.0"), check("a", "update")), { kind: "ok", label: "1.1.0" });
 
-  const list: AppsList = {
-    apps: [app("a", "1.0.0"), app("b", "1.0.0"), app("c", "1.0.0"), app("d", null)],
-    lastCheck: { checkedAt: "", sources: [], apps: [check("a", "update"), check("b", "patches"), check("c", "skipped")] },
-    skipped: { c: "1.1.0" },
-  };
-  assert.deepEqual(pendingUpdates(list), ["a", "b"]);
 });
 
 const patch = (name: string, extra: Partial<PatchRow> = {}): PatchRow => ({ name, description: "", default: true, required: false, compatible: true, options: {}, ...extra });
@@ -70,10 +64,8 @@ test("a skip made after the check turns the update into a skipped release, and u
   assert.equal(checkFor(skipped, "a")?.status, "skipped");
   assert.equal(skipped.lastCheck!.apps[0].status, "update"); // a copy, not a mutation
   assert.deepEqual(badgeFor(a, checkFor(skipped, "a")), { kind: "skipped", label: "Skipped 1.1.0" });
-  assert.deepEqual(pendingUpdates(skipped), []);
   const undone = listWith(a, check("a", "skipped"), {});
   assert.equal(checkFor(undone, "a")?.status, "update");
-  assert.deepEqual(pendingUpdates(undone), ["a"]);
   assert.equal(releaseNote(checkFor(undone, "a")!), "It isn't in your bundle yet; check now for a dry run."); // a skipped check ran none
 });
 
@@ -90,9 +82,7 @@ test("a re-patch after the check clears its new-patches notice", () => {
   const stale = listWith(row("2026-01-03T00:00:00Z"), check("a", "patches", "1.0.0"), {});
   assert.equal(checkFor(stale, "a"), undefined);
   assert.deepEqual(badgeFor(stale.apps[0], checkFor(stale, "a")), { kind: "ok", label: "1.0.0" });
-  assert.deepEqual(pendingUpdates(stale), []);
   const fresh = listWith(row("2026-01-01T00:00:00Z"), check("a", "patches", "1.0.0"), {});
-  assert.deepEqual(pendingUpdates(fresh), ["a"]);
 });
 
 test("a job's log and progress build up from its notifications", () => {
@@ -169,9 +159,27 @@ test("a forced version shows every patch, marking those its bundle doesn't list 
     bundle: { name: "b", version: "1" },
     patches: [row("Disable self-update", true), row("Hide Deals link", version === "2.22.3")],
     selection: { enable: [], disable: [], options: {} },
+    ask: [],
   });
   assert.deepEqual(forVersion(listing("2.22.3")), listing("2.22.3"));
   for (const v of ["2.22.4", "2.23.0"]) {
     assert.deepEqual(forVersion(listing(v)).patches.map((p) => [p.name, p.compatible, p.untested]), [["Disable self-update", true, undefined], ["Hide Deals link", true, true]]);
   }
+});
+
+test("new patches to ask about start unticked; Turn on ticks only them, Keep off keeps every choice", () => {
+  const patches = [patch("Old"), patch("New A"), patch("New B")];
+  const empty = { enable: [], disable: [], options: {} };
+  assert.deepEqual(initialToggles(patches, empty, ["New A", "New B"]), { Old: true, "New A": false, "New B": false });
+  const t = { Old: false, "New A": false, "New B": true };
+  const ask = ["New A", "New B"];
+  assert.deepEqual(answerNewPatches(t, ask, true), { Old: false, "New A": true, "New B": true });
+  assert.deepEqual(answerNewPatches(t, ask, false), t);
+});
+
+test("the banner names the bundle, the count, the app and the version", () => {
+  const l: Listing = { app: { name: "Hydra", versions: {} }, version: "4.1.6", listed: true, bundle: { name: "Revamp official", version: "0.4.0" }, patches: [], selection: { enable: [], disable: [], options: {} }, ask: ["A", "B"] };
+  assert.equal(newPatchesNote(l, "Hydra"), "Revamp official 0.4.0 adds 2 new patches for your Hydra 4.1.6. Turn them on?");
+  assert.equal(newPatchesNote({ ...l, ask: ["A"] }, "Hydra"), "Revamp official 0.4.0 adds 1 new patch for your Hydra 4.1.6. Turn them on?");
+  assert.equal(newPatchesNote({ ...l, bundle: { name: "Ev\u202Eil", version: "1" }, ask: ["A"] }, "Hydra"), "Evil 1 adds 1 new patch for your Hydra 4.1.6. Turn them on?");
 });
