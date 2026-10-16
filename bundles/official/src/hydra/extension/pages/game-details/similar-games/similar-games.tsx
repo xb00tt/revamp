@@ -11,7 +11,10 @@ import {
   VerticalCoverCard,
   type GameShop,
 } from "../../../app.ts";
-import { getSimilarGamesSectionState } from "../../../hooks/similar-games.ts";
+import {
+  getSimilarGamesSectionState,
+  type SimilarGamesSource,
+} from "../../../hooks/similar-games.ts";
 import { useSimilarGameViews } from "../../../hooks/use-similar-game-views.ts";
 
 import "./similar-games.css";
@@ -21,6 +24,7 @@ const GAMES_PER_PAGE = 3;
 interface SimilarGamesProps {
   objectId: string;
   shop: GameShop;
+  source: SimilarGamesSource;
 }
 
 function SimilarGamesSlide({ children }: Readonly<{ children: ReactNode }>) {
@@ -43,12 +47,17 @@ function SimilarGamesSkeleton() {
   );
 }
 
-export function SimilarGames({ objectId, shop }: Readonly<SimilarGamesProps>) {
+export function SimilarGames({
+  objectId,
+  shop,
+  source,
+}: Readonly<SimilarGamesProps>) {
   const navigate = useNavigate();
   const { t } = useTranslation("game_details");
   const { games, isLoading, isEligible } = useSimilarGameViews({
     objectId,
     shop,
+    source,
   });
   const sectionState = getSimilarGamesSectionState(
     isEligible,
@@ -90,7 +99,7 @@ export function SimilarGames({ objectId, shop }: Readonly<SimilarGamesProps>) {
 
   return (
     <section className="similar-games">
-      <h2 className="similar-games__title">{t("similar_games")}</h2>
+      <h2 className="similar-games__title">{t(`similar_games_${source}`)}</h2>
 
       {sectionState === "loading" ? <SimilarGamesSkeleton /> : null}
 

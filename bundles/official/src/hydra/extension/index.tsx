@@ -9,5 +9,5 @@ import { SimilarGames } from "./pages/game-details/similar-games/similar-games.t
 const root = revamp();
 root.mount ??= mount as (id: string, original: unknown) => unknown;
 root.mounts["hydra.similarGames"] = ({ objectId, shop }: { objectId: string; shop: GameShop }) => (
-  <SimilarGames objectId={objectId} shop={shop} />
+  <SimilarGames objectId={objectId} shop={shop} source="revamped" />
 );

@@ -5,6 +5,11 @@ interface Window {
       get<T>(path: string, options?: unknown): Promise<T>;
       post<T>(path: string, options?: unknown): Promise<T>;
     };
+    revampGetSteamAppTags(objectId: string): Promise<number[]>;
+    revampGetSteamRecommendations(
+      objectId: string
+    ): Promise<import("../steam-bridge/main.ts").SteamRecommendation[]>;
+    updateUserPreferences(values: Record<string, unknown>): Promise<unknown>;
   };
 }
 
