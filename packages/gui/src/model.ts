@@ -97,7 +97,7 @@ export interface Selection {
 
 /** Whether each patch starts switched on: required ones always, then the saved choice, then the patch's default. */
 export function initialToggles(patches: PatchRow[], saved: Selection, ask: string[] = []): Record<string, boolean> {
-  const on = (p: PatchRow) => p.required || (!ask.includes(p.name) && saved.enable.includes(p.name) || (p.default && !saved.disable.includes(p.name)));
+  const on = (p: PatchRow) => p.required || (!ask.includes(p.name) && (saved.enable.includes(p.name) || (p.default && !saved.disable.includes(p.name))));
   return Object.fromEntries(patches.filter((p) => p.compatible).map((p) => [p.name, on(p)]));
 }
 
