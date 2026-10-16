@@ -1,9 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { definePatch } from "@revamp/sdk";
 import { memoryStore, runJob, type Selection } from "@revamp/engine";
 import { formatPatchResult } from "../../../packages/cli/src/format.ts";
 import { EXTENSION_FILE, HYDRA_EXTENSION } from "../src/hydra/extension-loader.ts";
+import { hydra } from "../src/apps.ts";
+import { STEAM_BRIDGE, steamBridge } from "../src/hydra/steam-bridge.ts";
 import * as bundle from "../src/index.ts";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/hydra-4.1.6/${name}`, import.meta.url), "utf8");
@@ -28,6 +31,7 @@ function hydraFiles(overrides: Record<string, string> = {}) {
     [LOCALES]: fixture("locales-excerpt.js"),
     [MORE_LIKE_THIS]: fixture("more-like-this-excerpt.js"),
     "out/renderer/index.html": fixture("index.html"),
+    "out/preload/index.mjs": fixture("preload-excerpt.mjs"),
     [UPDATERS[0]]: fixture("AppUpdater-excerpt.js"),
     [UPDATERS[1]]: fixture("AppImageUpdater-excerpt.js"),
     ...overrides,
@@ -303,4 +307,24 @@ test("a captured name declared after the root render fails its registry patch in
   assert.equal(data.status, "failed");
   assert.match(data.message!, /registry entry logger \(logger\) is declared after the root render/);
   assert.equal(out.results.find((x) => x.name === "More like this ranking")!.status, "skipped");
+});
+
+test("the Steam bridge registers its handlers after registerEvent and exposes them in the preload", () => {
+  const probe = definePatch({ name: "Probe", compatibleWith: [{ app: hydra, versions: ["4.1.6"] }], dependsOn: [steamBridge], execute() {} });
+  const out = runJob(
+    { ...bundle, patches: [...bundle.patches, probe] },
+    { appId: "hydra", version: "4.1.6", selection: { enable: ["Probe"], disable: [], options: {} }, force: false, stockDesktop: STOCK },
+    memoryStore(hydraFiles()),
+  );
+  assert.equal(out.results.find((r) => r.name === "Probe")!.status, "applied");
+  assert.ok(
+    out.outputs.get("out/main/index.js")!.toString().includes(
+      "return JSON.parse(JSON.stringify(result));\n        });\n    });\n};\n" + STEAM_BRIDGE + "\n__revampSteamBridge.registerSteamBridge(registerEvent, logger);",
+    ),
+  );
+  assert.ok(
+    out.outputs.get("out/preload/index.mjs")!.toString().includes(
+      'getUserPreferences: () => ipcRenderer.invoke("getUserPreferences"), revampGetSteamAppTags: (objectId) => ipcRenderer.invoke("revamp:getSteamAppTags", objectId), revampGetSteamRecommendations: (objectId) => ipcRenderer.invoke("revamp:getSteamRecommendations", objectId),',
+    ),
+  );
 });

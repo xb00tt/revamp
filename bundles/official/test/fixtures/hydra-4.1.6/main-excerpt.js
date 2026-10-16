@@ -25,3 +25,13 @@ class WindowManager {
     }
   }
 }
+const logger = log.scope("main");
+const registerEvent = (name, listener)=>{
+    ipcMain.handle(name, async (event, ...args)=>{
+        return Promise.resolve(listener(event, ...args)).then((result)=>{
+            if (!result) return result;
+            return JSON.parse(JSON.stringify(result));
+        });
+    });
+};
+registerEvent("getGameStats", getGameStats);
