@@ -16,7 +16,6 @@ test("badges tell a new release from new patches, a skip, a failure and nothing 
   assert.deepEqual(badgeFor(app("a", "1.0.0"), check("a", "up to date", "1.0.0")), { kind: "ok", label: "Up to date" });
   // A check from before the app was updated says nothing about the version installed now.
   assert.deepEqual(badgeFor(app("a", "1.1.0"), check("a", "update")), { kind: "ok", label: "1.1.0" });
-
 });
 
 const patch = (name: string, extra: Partial<PatchRow> = {}): PatchRow => ({ name, description: "", default: true, required: false, compatible: true, options: {}, ...extra });

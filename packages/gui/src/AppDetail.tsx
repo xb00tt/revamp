@@ -112,7 +112,7 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
           {(untested || experimental) && <p className="muted warn">{untested ? "Untested: checked only against GitHub's SHA-256." : "Experimental in your bundle."}</p>}
           {listing.ask.length > 0 && !answered && (
             <div className="banner accent">
-              {newPatchesNote(listing, app.name)}{" "}
+              {newPatchesNote(listing, app.name)}
               <div className="row-actions">
                 <button className="primary" onClick={() => { setToggles(answerNewPatches(toggles, listing.ask, true)); setAnswered(true); }}>Turn on</button>
                 <button onClick={() => { setToggles(answerNewPatches(toggles, listing.ask, false)); setAnswered(true); }}>Keep off</button>
@@ -129,7 +129,7 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
                     <div>
                       <div>
                         {plain(p.name)} {p.required && <span className="pill">required</span>}
-                        {check?.newPatches?.includes(p.name) && <span className="pill patches">new</span>}
+                        {(check?.newPatches?.includes(p.name) || listing.ask.includes(p.name)) && <span className="pill patches">new</span>}
                         {p.untested && <span className="pill">untested on {plain(listing.version)}</span>}
                       </div>
                       <div className="muted">{plain(p.description)}</div>
