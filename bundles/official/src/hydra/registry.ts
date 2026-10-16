@@ -124,3 +124,18 @@ export const registerSteamTags = definePatch({
     });
   },
 });
+
+/** The last checkbox of Settings > Content & gameplay > Content preferences (Big Picture's list uses a different shape). */
+export const settingsLastCheckbox = fingerprint({
+  name: "settings Content preferences last checkbox",
+  strings: ['"persist_filters_and_sorting"', '"content_preferences"'],
+  pattern: '$JSX.jsx($CHECKBOX, { label: $T("persist_filters_and_sorting"), checked: $FORM.persistFiltersAndSorting })',
+});
+
+/** Internal "registry: settings": Hydra's checkbox, so the Settings checkboxes look like its own. */
+export const registerSettings = definePatch({
+  description: "registry: settings",
+  execute(ctx) {
+    register(ctx, { CheckboxField: ctx.match(settingsLastCheckbox).$CHECKBOX });
+  },
+});

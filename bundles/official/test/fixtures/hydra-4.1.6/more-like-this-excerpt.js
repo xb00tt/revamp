@@ -1,6 +1,7 @@
 // Excerpts from Hydra 4.1.6 out/renderer/assets/index-Cpo9haoY.js (MIT, github.com/hydralauncher/hydra), trimmed for
 // Revamp's More like this tests: the stock section, the internals it is built from, the catalogue's tag lookup and the
-// root render. Library code is cut down to its declaration; Big Picture's direct tag request is a decoy.
+// root render, and the Content preferences checkboxes of Settings (Big Picture's ContentSettingsSection is a decoy). Library
+// code is cut down to its declaration; Big Picture's direct tag request is a decoy too.
 var jsxRuntimeExports = requireJsxRuntime();
 var reactExports$1 = requireReact$1();
 const React = /* @__PURE__ */ getDefaultExportFromCjs$1(reactExports$1);
@@ -275,6 +276,51 @@ async function loadBigPictureFilters() {
       { params: { language: "en" }, needsAuth: false }
     )
   ]);
+}
+function CheckboxField({ label, ...props }) {
+  const id2 = reactExports$1.useId();
+  return null;
+}
+function SettingsContextContentGameplay() {
+  const { t: t2 } = useTranslation("settings");
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-context-panel", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-context-panel__group", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: t2("content_preferences") }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        CheckboxField,
+        {
+          label: t2("autoplay_trailers_on_game_page"),
+          checked: form.autoplayGameTrailers,
+          onChange: /* @__PURE__ */ __name(() => handleChange({
+            autoplayGameTrailers: !form.autoplayGameTrailers
+          }), "onChange")
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        CheckboxField,
+        {
+          label: t2("persist_filters_and_sorting"),
+          checked: form.persistFiltersAndSorting,
+          onChange: /* @__PURE__ */ __name(() => handleChange({
+            persistFiltersAndSorting: !form.persistFiltersAndSorting
+          }), "onChange")
+        }
+      )
+    ] })
+  ] });
+}
+function ContentSettingsSection({ className }) {
+  const { t: t2 } = useTranslation("settings");
+  const items = [
+      {
+        id: "persist-filters-and-sorting",
+        focusId: CONTENT_ITEM_FOCUS_IDS.persistFiltersAndSorting,
+        label: t2("persist_filters_and_sorting"),
+        checked: form.persistFiltersAndSorting,
+        onChange: /* @__PURE__ */ __name((checked) => void updateUserPreferences({ persistFiltersAndSorting: checked }), "onChange")
+      }
+  ];
+  return items;
 }
 ReactDOM$1.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(Provider_default, { store, children: /* @__PURE__ */ jsxRuntimeExports.jsx(App$1, {}) }) })

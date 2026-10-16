@@ -1,12 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { definePatch } from "@revamp/sdk";
 import { memoryStore, runJob, type Selection } from "@revamp/engine";
 import { formatPatchResult } from "../../../packages/cli/src/format.ts";
 import { EXTENSION_FILE, HYDRA_EXTENSION } from "../src/hydra/extension-loader.ts";
-import { hydra } from "../src/apps.ts";
-import { STEAM_BRIDGE, steamBridge } from "../src/hydra/steam-bridge.ts";
+import { STEAM_BRIDGE } from "../src/hydra/steam-bridge.ts";
 import * as bundle from "../src/index.ts";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/hydra-4.1.6/${name}`, import.meta.url), "utf8");
@@ -51,13 +49,18 @@ test("every Hydra patch applies to the Hydra 4.1.6 excerpts", () => {
     ["Use the bundled UI", "applied", false],
     ["Recently added sort", "applied", false],
     ["Recently downloaded sort", "applied", false],
-    ["More like this ranking", "applied", false],
+    ["More like this (Revamped)", "applied", false],
+    ["More like this (Steam)", "applied", false],
     ["(internal patch #4: Hydra locales)", "applied", true],
     ["(internal patch #7: Hydra extension loader)", "applied", true],
-    ["(internal patch #8: registry: game page)", "applied", true],
-    ["(internal patch #9: registry: game data)", "applied", true],
-    ["(internal patch #10: registry: library)", "applied", true],
-    ["(internal patch #11: registry: Steam tags)", "applied", true],
+    ["(internal patch #8: Steam bridge)", "applied", true],
+    ["(internal patch #9: registry: game page)", "applied", true],
+    ["(internal patch #10: registry: game data)", "applied", true],
+    ["(internal patch #11: registry: library)", "applied", true],
+    ["(internal patch #12: registry: Steam tags)", "applied", true],
+    ["(internal patch #13: Similar games rows)", "applied", true],
+    ["(internal patch #14: registry: settings)", "applied", true],
+    ["(internal patch #15: Similar games settings)", "applied", true],
   ]);
 });
 
@@ -93,7 +96,7 @@ test("renderer patches are skipped, not silently dead, when the bundled UI can't
   assert.equal(status("Recently downloaded sort").status, "skipped");
   assert.match(status("Recently downloaded sort").message!, /dependency "Use the bundled UI" failed/);
   assert.equal(status("Recently added sort").status, "skipped");
-  assert.equal(status("More like this ranking").status, "skipped");
+  assert.equal(status("More like this (Revamped)").status, "skipped");
 });
 
 test("Recently downloaded sort edits the five places and leaves the decoys alone", () => {
@@ -224,7 +227,7 @@ test("a release the patches don't fit gives the spec's report: what applies, and
   assert.equal(
     report,
     [
-      "Hydra 4.1.7 (untested): 4/6 patches apply (dry run, nothing installed)",
+      "Hydra 4.1.7 (untested): 5/7 patches apply (dry run, nothing installed)",
       "  ✓ Disable self-update (required)",
       "  ✓ Side-by-side identity (required)",
       "  ✓ Use the bundled UI",
@@ -232,7 +235,8 @@ test("a release the patches don't fit gives the spec's report: what applies, and
       `      ${miss}`,
       "  ✗ Recently downloaded sort",
       `      ${miss}`,
-      "  ✓ More like this ranking",
+      "  ✓ More like this (Revamped)",
+      "  ✓ More like this (Steam)",
     ].join("\n"),
   );
 });
@@ -251,7 +255,10 @@ test("the extension loader ships the extension and loads it before Hydra's own m
   );
 });
 
-test("the registry patches name Hydra's internals just before the root render, and More like this mounts the stock section", () => {
+const SETTINGS_SLOT = 'const __revampSimilarGamesSettings = globalThis.__revamp?.mount?.("hydra.similarGamesSettings", () => null) ?? (() => null);';
+const MARKER = (name: string) => `(globalThis.__revamp ??= { registry: {}, mounts: {} }).registry.${name} = true;`;
+
+test("the registry patches name Hydra's internals just before the root render", () => {
   const code = job().outputs.get(MORE_LIKE_THIS)!.toString();
   const registry = [
     REGISTRY(
@@ -262,61 +269,28 @@ test("the registry patches name Hydra's internals just before the root render, a
     REGISTRY("levelDBService: levelDBService, orderBy: orderBy$1, logger: logger"),
     REGISTRY("useLibrary: useLibrary$1, useAppDispatch: useAppDispatch$1, useAppSelector: useAppSelector$1"),
     REGISTRY("setTags: catalogueSearchSlice.actions.setTags, getLocalizedSteamMetadata: getLocalizedSteamMetadata"),
+    REGISTRY("CheckboxField: CheckboxField"),
   ];
-  assert.ok(code.includes(`${registry.join("\n")}\nReactDOM$1.createRoot(document.getElementById("root"))`));
-  assert.ok(
-    code.includes(
-      '}\nSimilarGames = globalThis.__revamp?.mount?.("hydra.similarGames", SimilarGames) ?? SimilarGames;\n__name(SimilarGames, "SimilarGames");',
-    ),
-  );
+  for (const line of registry) assert.ok(code.includes(line), line);
+  assert.ok(code.indexOf(registry.at(-1)!) < code.indexOf("ReactDOM$1.createRoot("));
 });
 
-test("a changed stock section skips only More like this, so Hydra keeps its stock section", () => {
-  const changed = fixture("more-like-this-excerpt.js").replace("similar-games__control--previous", "similar-games__control--back");
-  const out = job(NONE, hydraFiles({ [MORE_LIKE_THIS]: changed }));
-  const r = (name: string) => out.results.find((x) => x.name === name)!;
-  assert.equal(r("(internal patch #8: registry: game page)").status, "failed");
-  assert.match(r("(internal patch #8: registry: game page)").message!, /expected 1 match, found 0/);
-  assert.equal(r("More like this ranking").status, "skipped");
-  assert.equal(r("Recently added sort").status, "applied");
-  assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes("__revamp?.mount"), false);
-});
-
-test("with More like this disabled, the renderer, index.html and the extension file are untouched", () => {
-  const out = job({ ...NONE, disable: ["More like this ranking"] });
-  for (const file of [MORE_LIKE_THIS, "out/renderer/index.html", EXTENSION_FILE]) assert.equal(out.outputs.has(file), false, file);
-});
-
-test("a captured name that isn't declared at the top level fails its registry patch instead of breaking Hydra's startup", () => {
-  // Registry lines run while Hydra's module loads: a name out of scope there would throw and blank the whole UI.
-  const changed = fixture("more-like-this-excerpt.js").replace("const logger = log$2.scope(\"renderer\");\n", "");
-  const out = job(NONE, hydraFiles({ [MORE_LIKE_THIS]: changed }));
-  const data = out.results.find((x) => x.name === "(internal patch #9: registry: game data)")!;
-  assert.equal(data.status, "failed");
-  assert.match(data.message!, /resolve\(\): logger .* has no top-level declaration/);
-  assert.equal(out.results.find((x) => x.name === "More like this ranking")!.status, "skipped");
-  assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes("logger: logger"), false);
-});
-
-test("a captured name declared after the root render fails its registry patch instead of breaking Hydra's startup", () => {
-  // A const declared after the render isn't initialized yet when the registry line runs (temporal dead zone).
-  const declaration = 'const logger = log$2.scope("renderer");\n';
-  const changed = fixture("more-like-this-excerpt.js").replace(declaration, "") + declaration;
-  const out = job(NONE, hydraFiles({ [MORE_LIKE_THIS]: changed }));
-  const data = out.results.find((x) => x.name === "(internal patch #9: registry: game data)")!;
-  assert.equal(data.status, "failed");
-  assert.match(data.message!, /registry entry logger \(logger\) is declared after the root render/);
-  assert.equal(out.results.find((x) => x.name === "More like this ranking")!.status, "skipped");
-});
-
-test("the Steam bridge registers its handlers after registerEvent and exposes them in the preload", () => {
-  const probe = definePatch({ name: "Probe", compatibleWith: [{ app: hydra, versions: ["4.1.6"] }], dependsOn: [steamBridge], execute() {} });
-  const out = runJob(
-    { ...bundle, patches: [...bundle.patches, probe] },
-    { appId: "hydra", version: "4.1.6", selection: { enable: ["Probe"], disable: [], options: {} }, force: false, stockDesktop: STOCK },
-    memoryStore(hydraFiles()),
-  );
-  assert.equal(out.results.find((r) => r.name === "Probe")!.status, "applied");
+test("both rows: markers and the settings slot before the root render, the stock section mounted once, the checkbox slot after the last Content preferences checkbox", () => {
+  const out = job();
+  const code = out.outputs.get(MORE_LIKE_THIS)!.toString();
+  const root = code.indexOf("ReactDOM$1.createRoot(");
+  for (const piece of [MARKER("similarGamesSteam"), MARKER("similarGamesRevamped"), SETTINGS_SLOT]) {
+    assert.ok(code.includes(piece), piece);
+    assert.ok(code.indexOf(piece) < root, piece);
+  }
+  const mount = 'SimilarGames = globalThis.__revamp?.mount?.("hydra.similarGames", SimilarGames) ?? SimilarGames;';
+  assert.equal(code.split(mount).length - 1, 1);
+  const slot = "), jsxRuntimeExports.jsx(__revampSimilarGamesSettings, {})";
+  assert.equal(code.split(slot).length - 1, 1);
+  assert.ok(code.indexOf(slot) > code.indexOf('label: t2("persist_filters_and_sorting"),'));
+  const decoy = (s: string) => s.slice(s.indexOf("function ContentSettingsSection("), s.indexOf("  return items;\n}"));
+  assert.equal(decoy(code), decoy(fixture("more-like-this-excerpt.js")));
+  // The Steam bridge: main process handlers after registerEvent, two functions in the preload.
   assert.ok(
     out.outputs.get("out/main/index.js")!.toString().includes(
       "return JSON.parse(JSON.stringify(result));\n        });\n    });\n};\n" + STEAM_BRIDGE + "\n__revampSteamBridge.registerSteamBridge(registerEvent, logger);",
@@ -327,4 +301,65 @@ test("the Steam bridge registers its handlers after registerEvent and exposes th
       'getUserPreferences: () => ipcRenderer.invoke("getUserPreferences"), revampGetSteamAppTags: (objectId) => ipcRenderer.invoke("revamp:getSteamAppTags", objectId), revampGetSteamRecommendations: (objectId) => ipcRenderer.invoke("revamp:getSteamRecommendations", objectId),',
     ),
   );
+});
+
+test("only Steam: one marker, the same shared patches", () => {
+  const out = job({ ...NONE, disable: ["More like this (Revamped)"] });
+  const code = out.outputs.get(MORE_LIKE_THIS)!.toString();
+  assert.ok(code.includes(MARKER("similarGamesSteam")));
+  assert.equal(code.includes(MARKER("similarGamesRevamped")), false);
+  assert.ok(code.includes(SETTINGS_SLOT));
+  assert.ok(out.outputs.get("out/main/index.js")!.toString().includes("__revampSteamBridge.registerSteamBridge("));
+});
+
+test("a changed stock section skips both rows, so Hydra keeps its stock section", () => {
+  const changed = fixture("more-like-this-excerpt.js").replace("similar-games__control--previous", "similar-games__control--back");
+  const out = job(NONE, hydraFiles({ [MORE_LIKE_THIS]: changed }));
+  const r = (name: string) => out.results.find((x) => x.name === name)!;
+  assert.equal(r("(internal patch #9: registry: game page)").status, "failed");
+  assert.match(r("(internal patch #9: registry: game page)").message!, /expected 1 match, found 0/);
+  assert.equal(r("More like this (Revamped)").status, "skipped");
+  assert.equal(r("More like this (Steam)").status, "skipped");
+  assert.equal(r("Recently added sort").status, "applied");
+  assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes('mount?.("hydra.similarGames",'), false);
+  assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes(".registry.similarGames"), false);
+});
+
+test("a changed settings section skips both rows", () => {
+  const changed = fixture("more-like-this-excerpt.js").replace('t2("content_preferences")', 't2("content_preferences_v2")');
+  const out = job(NONE, hydraFiles({ [MORE_LIKE_THIS]: changed }));
+  const r = (name: string) => out.results.find((x) => x.name === name)!;
+  assert.equal(r("(internal patch #14: registry: settings)").status, "failed");
+  assert.match(r("(internal patch #14: registry: settings)").message!, /fingerprint "settings Content preferences last checkbox" failed/);
+  assert.equal(r("More like this (Revamped)").status, "skipped");
+  assert.equal(r("More like this (Steam)").status, "skipped");
+  assert.equal(r("Recently added sort").status, "applied");
+});
+
+test("neither: nothing outside the other patches changes", () => {
+  const out = job({ ...NONE, disable: ["More like this (Steam)", "More like this (Revamped)"] });
+  for (const file of [MORE_LIKE_THIS, "out/preload/index.mjs", "out/renderer/index.html", EXTENSION_FILE]) assert.equal(out.outputs.has(file), false, file);
+  assert.equal(out.outputs.get("out/main/index.js")!.toString().includes("__revampSteamBridge"), false);
+});
+
+test("a captured name that isn't declared at the top level fails its registry patch instead of breaking Hydra's startup", () => {
+  // Registry lines run while Hydra's module loads: a name out of scope there would throw and blank the whole UI.
+  const changed = fixture("more-like-this-excerpt.js").replace("const logger = log$2.scope(\"renderer\");\n", "");
+  const out = job(NONE, hydraFiles({ [MORE_LIKE_THIS]: changed }));
+  const data = out.results.find((x) => x.name === "(internal patch #10: registry: game data)")!;
+  assert.equal(data.status, "failed");
+  assert.match(data.message!, /resolve\(\): logger .* has no top-level declaration/);
+  assert.equal(out.results.find((x) => x.name === "More like this (Revamped)")!.status, "skipped");
+  assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes("logger: logger"), false);
+});
+
+test("a captured name declared after the root render fails its registry patch instead of breaking Hydra's startup", () => {
+  // A const declared after the render isn't initialized yet when the registry line runs (temporal dead zone).
+  const declaration = 'const logger = log$2.scope("renderer");\n';
+  const changed = fixture("more-like-this-excerpt.js").replace(declaration, "") + declaration;
+  const out = job(NONE, hydraFiles({ [MORE_LIKE_THIS]: changed }));
+  const data = out.results.find((x) => x.name === "(internal patch #10: registry: game data)")!;
+  assert.equal(data.status, "failed");
+  assert.match(data.message!, /registry entry logger \(logger\) is declared after the root render/);
+  assert.equal(out.results.find((x) => x.name === "More like this (Revamped)")!.status, "skipped");
 });
