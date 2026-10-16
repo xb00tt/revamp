@@ -15,6 +15,7 @@ import {
   getSimilarGamesSectionState,
   type SimilarGamesSource,
 } from "../../../hooks/similar-games.ts";
+import { similarGamesText } from "../../../strings.ts";
 import { useSimilarGameViews } from "../../../hooks/use-similar-game-views.ts";
 
 import "./similar-games.css";
@@ -53,7 +54,7 @@ export function SimilarGames({
   source,
 }: Readonly<SimilarGamesProps>) {
   const navigate = useNavigate();
-  const { t } = useTranslation("game_details");
+  const { t, i18n } = useTranslation("game_details");
   const { games, isLoading, isEligible } = useSimilarGameViews({
     objectId,
     shop,
@@ -99,7 +100,7 @@ export function SimilarGames({
 
   return (
     <section className="similar-games">
-      <h2 className="similar-games__title">{t(`similar_games_${source}`)}</h2>
+      <h2 className="similar-games__title">{similarGamesText(i18n.language).title[source]}</h2>
 
       {sectionState === "loading" ? <SimilarGamesSkeleton /> : null}
 
