@@ -70,13 +70,14 @@ All network, hashing, extraction and installing happen in the parent.
 - Bundle text is untrusted on screen too: the CLI prints everything through `printable()`, so control characters can't rewrite the trust prompt.
 
 **GUI (spec §9, M5).** The window is a Tauri v2 shell around `revamp serve`; it holds no engine logic.
-- `cli/serve.ts`: JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `createHandler` is tested in-process. Jobs stream `job.progress` from `patchApp`'s `progress` option; the sandboxed child reports each patch start as a `revamp-event {…}` stderr line. `sources.add` takes only a `sources.prepare` token from the same session.
+- `cli/serve.ts`: JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `createHandler` is tested in-process. Jobs stream `job.progress` from `patchApp`'s `progress` option; the sandboxed child reports each patch start as a `revamp-event {…}` stderr line. `sources.add` takes only a `sources.prepare` token from the same session. `patches.list` also returns `ask`, the new patches the window must ask about.
 - `packages/gui/src`: Vite + React 18 + TypeScript with its own tsconfig (the root project excludes it). Screen logic lives in `model.ts` and `rpc.ts`, which Node tests cover; the TSX screens are checked in the browser pane through `npm run dev -w @revamp/gui`. `platform.ts` picks the transport: the Tauri sidecar, or Vite's websocket bridged to `revamp serve` in dev.
 - `packages/gui/src-tauri`: shell and notification plugins; the capability allows spawning only `revamp serve` from beside the window. The installed window's `revamp` is a link to `~/.local/share/revamp/bin/revamp`, so the window and the timer run one binary.
 - Check statuses: `update` (newer release, dry-run), `patches` (the source now pins another bundle than the install was patched with; `revamp update` re-patches), `skipped` (`<state>/skipped.json`). Storage (`engine/storage.ts`) removes only what it lists without a keep reason.
 
 **Extensions (spec §6, M3).** New UI ships as an extension: `bundles/official/src/hydra/extension/` (its own tsconfig with JSX and DOM types). Node tests may import its plain `.ts` files but never a `.tsx` file or anything that imports one, because Node can't strip JSX.
 - `scripts/build.ts` compiles it with esbuild into a string and embeds it in the bundle through `define` (`__REVAMP_HYDRA_EXTENSION__`). Unit tests import bundle sources directly and get a placeholder.
+- A second esbuild output, the Steam bridge (`__REVAMP_HYDRA_STEAM_BRIDGE__`), runs in Hydra's main process.
 - The internal "Hydra extension loader" patch adds it as `out/renderer/assets/revamp-hydra.js`, loaded before Hydra's module script.
 - Registry patches (`src/hydra/registry.ts`) capture Hydra internals from the stock code that uses them. Each name is `resolve()`-checked as top-level, and they are assigned to `globalThis.__revamp.registry` just before the root render call.
 - Extension code reaches them only at call time through `@revamp/sdk/shims/*` and the extension's `app.ts`, because the extension loads before Hydra's module runs.
