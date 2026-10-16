@@ -124,7 +124,7 @@ export const getSteamRecommendations = async (
 export function registerSteamBridge(
   registerEvent: (name: string, listener: (event: unknown, objectId: unknown) => unknown) => void,
   logger: BridgeLogger,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = globalThis.fetch,
 ): void {
   registerEvent(CHANNELS.tags, (_e, id) => getSteamAppTags(typeof id === "string" ? id : "", fetchImpl, logger));
   registerEvent(CHANNELS.recommendations, (_e, id) =>

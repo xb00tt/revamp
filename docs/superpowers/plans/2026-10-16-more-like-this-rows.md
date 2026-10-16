@@ -821,7 +821,7 @@ These are outward or change the owner's machine. Ask the owner before each step 
 - [ ] **Step 5: Install on the owner's machine (ask).** Run `npm run gui:install`, which also installs the CLI.
 - [ ] **Step 6: Owner's check.**
   1. The owner quits Hydra (Revamped).
-  2. Run `revamp update hydra`. Expect the source to refresh to 0.4.0, and the prompt listing both patches with "Turn them on? [y/N]". The owner answers.
+  2. Hydra 4.2.0 is out and not listed in the bundle, so `revamp update hydra` would fail. Run `revamp patch hydra` (it re-patches 4.1.6, the bundle's newest stable version, and asks). Expect the source to refresh to 0.4.0, and the prompt listing both patches with "Turn them on? [y/N]". The owner answers.
   3. Open Hydra (Revamped):
      - **Inspector Waffles:** the Steam row starts near The Roottrees are Dead, Phoenix Wright and L.A. Noire.
      - **Space Evolver:** Revamped shows TheoTown, Starmancer and Station Manager; Steam shows Combolands and Balatro.

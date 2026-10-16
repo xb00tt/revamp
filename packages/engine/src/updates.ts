@@ -163,7 +163,7 @@ export async function checkUpdates(o: UpdateOptions): Promise<CheckResult> {
           o.log?.(`${app.name} ${latest}: nothing changed since the last dry run, so it isn't run again.`);
           Object.assign(check, { status: "update", applied: before.applied, total: before.total, failing: before.failing, aborted: before.aborted, basis });
         } else {
-          const r = await patchApp({ ...o, appId: app.id, bundlePath, version: latest, force: !listed, dryRun: true });
+          const r = await patchApp({ ...o, appId: app.id, bundlePath, version: latest, force: !listed, dryRun: true, confirmNewPatches: undefined });
           Object.assign(check, { status: "update", ...patchCounts(r.results), aborted: r.aborted, basis });
         }
       } else if (bundleChanged(installed, source)) {

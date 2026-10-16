@@ -11,7 +11,7 @@ const q = {
     { name: "More like this (Revamped)", description: "Tag row." },
   ],
 };
-const NOTE = 'They stay off for this run. To turn them on, run it again with --yes or --enable "<patch>".';
+const NOTE = 'They stay off for this run. To turn them on, run it again with --yes, or use revamp patch <app> --enable "<patch>".';
 
 function run(o: { yes?: boolean; dryRun?: boolean; interactive?: boolean; answer?: boolean }, question = q) {
   const lines: string[] = [];

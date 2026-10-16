@@ -16,7 +16,7 @@ export function newPatchesPrompt(o: {
     for (const p of q.patches) out(`  ${p.name.padEnd(width)}${p.description}`);
     if (o.yes) return "on";
     if (o.dryRun || !o.interactive) {
-      out('They stay off for this run. To turn them on, run it again with --yes or --enable "<patch>".');
+      out('They stay off for this run. To turn them on, run it again with --yes, or use revamp patch <app> --enable "<patch>".');
       return "off-this-run";
     }
     return (await o.confirm("Turn them on?")) ? "on" : "off";

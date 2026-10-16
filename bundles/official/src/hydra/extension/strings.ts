@@ -33,4 +33,7 @@ const TEXT: Record<string, Text> = {
   },
 };
 
-export const similarGamesText = (language: string): Text => (Object.hasOwn(TEXT, language) ? TEXT[language] : en);
+export const similarGamesText = (language: string): Text => {
+  for (const key of [language, language.split("-")[0]]) if (Object.hasOwn(TEXT, key)) return TEXT[key];
+  return en;
+};

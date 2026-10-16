@@ -573,7 +573,7 @@ Flags passed to `patch` are saved into `~/.config/revamp/apps/<app>.json`, so `u
 | Registry hooks (internal, about 12) | hydra | 4.1.6 | M3 | §6 registry |
 | Steam bridge (internal) | hydra | 4.1.6 | M3 | Runs in Hydra's main process: inserts `__revampSteamBridge.registerSteamBridge(registerEvent, logger);` after `registerEvent` and adds `revampGetSteamAppTags` / `revampGetSteamRecommendations` to the preload |
 | More like this (Steam) | hydra | 4.1.6 | M3 | Feature patch: sets the `similarGamesSteam` registry marker, the extension adds a Steam-recommendations row through `mount()` |
-| More like this (Revamped) | hydra | 4.1.6 | M3 | Feature patch: sets the `similarGamesRevamped` marker, the extension adds the ranked row (four Steam-tag queries plus `/similar` in parallel, hit-count ranking, per-game session cache, shared tags and library badge, limit 12) |
+| More like this (Revamped) | hydra | 4.1.6 | M3 | Feature patch: sets the `similarGamesRevamped` marker, the extension adds the ranked row (six catalogue searches on the game's Steam store tags (6/5/5/4/3/2 tags, Roguelike and Roguelite dropped), hit-count ranking, no `/similar` padding, per-game session cache, shared tags and library badge, limit 12) |
 
 The Heroic app definition (`installDir`, `executable`, `desktopFile`) is filled in from the real `.deb` listing in the M2 plan.
 

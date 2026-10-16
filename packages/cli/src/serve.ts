@@ -104,7 +104,7 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
       const appId = str(p, "appId");
       const listing = await listPatches(await bundle(appId), appId, optStr(p, "version"));
       const selection = loadSelection(o.paths, appId);
-      const ask = newPatchesToAsk(listing.app, listing.patches, listing.version, installedPatchNames(o.paths, appId), selection, {}).map((x) => x.name);
+      const ask = newPatchesToAsk(listing.app, listing.patches, listing.version, installedPatchNames(o.paths, appId), selection, {}, !listing.listed || !!listing.app.versions[listing.version]?.experimental).map((x) => x.name);
       return { ...listing, selection, ask };
     },
     "selection.get": (p) => loadSelection(o.paths, str(p, "appId")),

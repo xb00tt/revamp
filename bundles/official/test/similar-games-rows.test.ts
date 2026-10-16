@@ -28,3 +28,8 @@ test("the strings are the fork's, with English for other languages", () => {
   assert.deepEqual(similarGamesText("de"), similarGamesText("en"));
   assert.deepEqual(similarGamesText("pt-PT"), similarGamesText("en"));
 });
+
+test("regional language codes use their base language, then English", () => {
+  assert.deepEqual(similarGamesText("bg-BG"), similarGamesText("bg"));
+  assert.deepEqual(similarGamesText("pt-PT"), similarGamesText("en"));
+});

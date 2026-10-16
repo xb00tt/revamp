@@ -29,7 +29,7 @@ export const similarGamesRows = definePatch({
 /** Internal "Similar games settings": the checkboxes slot after the last Content preferences checkbox. */
 export const similarGamesSettings = definePatch({
   description: "Similar games settings",
-  dependsOn: [useBundledUi, hydraExtensionLoader, registerSettings, registerLibrary],
+  dependsOn: [useBundledUi, hydraExtensionLoader, registerGamePage, registerSettings, registerLibrary],
   execute(ctx) {
     const box = ctx.match(settingsLastCheckbox);
     const render = ctx.match(rootRender);

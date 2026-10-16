@@ -323,6 +323,8 @@ test("a changed stock section skips both rows, so Hydra keeps its stock section"
   assert.equal(r("Recently added sort").status, "applied");
   assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes('mount?.("hydra.similarGames",'), false);
   assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes(".registry.similarGames"), false);
+  assert.equal(out.outputs.get(MORE_LIKE_THIS)!.toString().includes("__revampSimilarGamesSettings"), false);
+  assert.equal(r("(internal patch #15: Similar games settings)").status, "skipped");
 });
 
 test("a changed settings section skips both rows", () => {

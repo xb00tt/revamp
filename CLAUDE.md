@@ -24,9 +24,9 @@ npm run tauri:dev -w @revamp/gui            # the real window (Tauri) with reloa
 npm run gui:install                         # installs the CLI, builds the window, puts "Revamp" in the menu
 npm run test:integration                    # builds the bundle, patches the REAL releases into temp homes, tests the SEA
 npm run revamp -- patches hydra             # CLI from source; also: patch <app> [--version v --force]
-                                            #   [--enable/--disable "<patch>"] [--option "<patch>:<key>=<value>"]
+                                            #   [--enable/--disable "<patch>"] [--option "<patch>:<key>=<value>"] [--yes]
                                             #   [--bundle file] [--dry-run], list, rollback <app>, uninstall <app>,
-                                            #   sources add/list/remove, check [--notify], update [app] [--force],
+                                            #   sources add/list/remove, check [--notify], update [app] [--force] [--yes],
                                             #   timer enable|disable, serve
 npm run release -w @revamp/bundle-official  # owner only: GitHub release bundle-v<version>, then commits bundle.json
 ```

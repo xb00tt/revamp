@@ -61,11 +61,13 @@ export function newPatchesToAsk(
   installed: string[] | undefined,
   saved: Selection,
   flags: { enable?: string[]; disable?: string[] },
+  /** Under --force the engine runs every default-on patch whatever its versions, so they all count as offered. */
+  forced: boolean,
 ): PatchInfo[] {
   if (!installed) return [];
   const answered = [...saved.enable, ...saved.disable, ...(flags.enable ?? []), ...(flags.disable ?? [])];
   return patches.filter(
-    (p) => fitsVersion(p, app.id, version) && p.default && !app.required.includes(p.name) && !installed.includes(p.name) && !answered.includes(p.name),
+    (p) => (forced || fitsVersion(p, app.id, version)) && p.default && !app.required.includes(p.name) && !installed.includes(p.name) && !answered.includes(p.name),
   );
 }
 
@@ -165,7 +167,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
   const selection = resolved.selection;
   let runSelection: Selection | undefined;
   if (o.confirmNewPatches) {
-    const ask = newPatchesToAsk(app, patchesForApp(desc.patches, app.id), version, installedPatchNames(paths, app.id), loadSelection(paths, app.id), o);
+    const ask = newPatchesToAsk(app, patchesForApp(desc.patches, app.id), version, installedPatchNames(paths, app.id), loadSelection(paths, app.id), o, o.force ?? false);
     if (ask.length) {
       const names = ask.map((p) => p.name);
       const answer = await o.confirmNewPatches({

@@ -45,8 +45,8 @@ const WAVE = `patches.push({ kind: "patch", name: "Wave", description: "Waves.",
 const patch = (name: string, o: Partial<PatchInfo> = {}): PatchInfo => ({ name, description: "", apps: null, default: true, options: {}, ...o });
 const app = { id: "demo", required: ["Req"] } as AppInfo;
 const none: Selection = { enable: [], disable: [], options: {} };
-const ask = (p: PatchInfo, o: { installed?: string[]; saved?: Selection; flags?: { enable?: string[]; disable?: string[] } } = {}) =>
-  newPatchesToAsk(app, [p], "1.0.0", o.installed ?? ["Old"], o.saved ?? none, o.flags ?? {}).map((x) => x.name);
+const ask = (p: PatchInfo, o: { installed?: string[]; saved?: Selection; flags?: { enable?: string[]; disable?: string[] }; forced?: boolean } = {}) =>
+  newPatchesToAsk(app, [p], "1.0.0", o.installed ?? ["Old"], o.saved ?? none, o.flags ?? {}, o.forced ?? false).map((x) => x.name);
 
 test("asks about default-on patches the install never had and nobody answered", () => {
   assert.deepEqual(ask(patch("New")), ["New"]);
@@ -58,10 +58,11 @@ test("asks about default-on patches the install never had and nobody answered", 
   assert.deepEqual(ask(patch("New"), { flags: { enable: ["New"] } }), []);
   assert.deepEqual(ask(patch("New"), { flags: { disable: ["New"] } }), []);
   assert.deepEqual(ask(patch("New", { apps: [{ app: "demo", versions: ["2.0.0"] }] })), []);
+  assert.deepEqual(ask(patch("New", { apps: [{ app: "demo", versions: ["2.0.0"] }] }), { forced: true }), ["New"]);
 });
 
 test("a first install asks nothing", () => {
-  assert.deepEqual(newPatchesToAsk(app, [patch("New")], "1.0.0", undefined, none, {}), []);
+  assert.deepEqual(newPatchesToAsk(app, [patch("New")], "1.0.0", undefined, none, {}, false), []);
 });
 
 async function rePatch(answer: NewPatchesAnswer | "throw", extraOpts: Partial<PatchAppOptions> = {}) {
@@ -129,4 +130,15 @@ test("flags answer for themselves", async (t) => {
   const { s, status } = await rePatch("throw", { enable: ["Wave"] });
   t.after(s.close);
   assert.equal(status, "applied");
+});
+
+test("a forced, unlisted version asks about a new default-on patch marked only for another version", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  const forced = { ...s.opts, version: "3.0.0", force: true };
+  assert.equal((await patchApp(forced)).exitCode, 0);
+  s.writeBundle({ extra: WAVE.replace("compatibleWith: [{ app }]", 'compatibleWith: [{ app, versions: ["2.0.0"] }]') });
+  const questions: NewPatchesQuestion[] = [];
+  await patchApp({ ...forced, confirmNewPatches: async (q) => (questions.push(q), "off-this-run") });
+  assert.deepEqual(questions.map((q) => q.patches.map((p) => p.name)), [["Wave"]]);
 });

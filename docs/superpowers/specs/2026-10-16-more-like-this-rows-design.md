@@ -208,7 +208,7 @@ The approved mockup is option A in this session's brainstorm: the banner on the 
   3. `npm run release -w @revamp/bundle-official`. It needs a clean, pushed tree; it creates GitHub release `bundle-v0.4.0` and commits the root `bundle.json`.
   4. Push that commit.
   5. `npm run gui:install`, which installs the CLI too.
-  6. Quit Hydra (Revamped) and run `npm run revamp -- update hydra` (or the window) on the real home, so the owner sees the new question.
+  6. Quit Hydra (Revamped) and run `npm run revamp -- patch hydra` (or the window on 4.1.6) on the real home, so the owner sees the new question. Hydra 4.2.0 is out and not listed in the bundle, so `update hydra` would fail; `patch` re-patches 4.1.6, the newest stable version listed.
 
 Each outward step (push, GitHub release) is confirmed with the owner when it comes up.
 
