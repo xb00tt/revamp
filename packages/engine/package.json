@@ -2,6 +2,7 @@
   "name": "@revamp-app/engine",
   "version": "0.3.0",
   "type": "module",
+  "description": "Revamp's patch engine: download, verify, unpack, fingerprint, edit, install",
   "license": "GPL-3.0-only",
   "exports": {
     ".": "./src/index.ts",

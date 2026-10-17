@@ -19,14 +19,15 @@ test(
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     const env = { PATH: process.env.PATH, HOME: join(dir, "home") };
     const packs = join(dir, "packs");
-    execFileSync("npm", ["run", "publish:packages", "--", "--pack", packs], { cwd: ROOT, env, stdio: "ignore" });
+    // stderr is piped so a tsc or npm failure shows up on the thrown error; a normal run stays quiet
+    execFileSync("npm", ["run", "publish:packages", "--", "--pack", packs], { cwd: ROOT, env, stdio: ["ignore", "ignore", "pipe"] });
 
     const project = join(dir, "consumer project");
     mkdirSync(project);
     writeFileSync(join(project, "package.json"), '{"name":"c","private":true,"type":"module"}\n');
     // One install for all three: npm then satisfies their @revamp-app/* dependencies from the tarballs, not the registry.
     const tarballs = readdirSync(packs).map((f) => join(packs, f));
-    execFileSync("npm", ["install", "--no-audit", "--no-fund", ...tarballs], { cwd: project, env, stdio: "ignore" });
+    execFileSync("npm", ["install", "--no-audit", "--no-fund", ...tarballs], { cwd: project, env, stdio: ["ignore", "ignore", "pipe"] });
     const bundle = join(project, "demo bundle.mjs");
     writeDemoBundle(bundle, { sha256: "0".repeat(64) });
 
