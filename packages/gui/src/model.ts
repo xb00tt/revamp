@@ -1,5 +1,5 @@
 // What the screens show, as plain functions the Node tests can run (no React, no Tauri).
-import type { AppCheck, CheckResult, JobProgress, PatchAppResult, StorageItem } from "@revamp/engine";
+import type { AppCheck, CheckResult, JobProgress, PatchAppResult, StorageItem } from "@revamp-app/engine";
 
 export interface AppRow {
   appId: string;

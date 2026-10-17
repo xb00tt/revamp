@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { addSource, bundleForApp, loadSources, prepareSource, refreshSources, removeSource, sourceKind, type SourceFetchOptions } from "../src/bundle-sources.ts";
+import { addDefaultSource, addSource, bundleForApp, loadSources, prepareSource, refreshSources, removeSource, sourceKind, type SourceFetchOptions } from "../src/bundle-sources.ts";
 import { revampPaths } from "../src/paths.ts";
 import { writeDemoBundle } from "./helpers/demo.ts";
 
@@ -28,7 +28,7 @@ async function setup() {
       res.statusCode = status;
       res.end(body);
     };
-    if (req.url === "/raw/example/bundles/HEAD/bundle.json" || req.url === "/url/bundle.json") send(state.rawStatus, JSON.stringify(state.bundleJson));
+    if (["/raw/example/bundles/HEAD/bundle.json", "/raw/xb00tt/revamp-patches/HEAD/bundle.json", "/url/bundle.json"].includes(req.url!)) send(state.rawStatus, JSON.stringify(state.bundleJson));
     else if (req.url === "/api/repos/example/bundles/contents/bundle.json") {
       assert.equal(req.headers.accept, "application/vnd.github.raw+json");
       send(state.apiStatus, JSON.stringify(state.bundleJson));
@@ -227,4 +227,36 @@ test("a refresh with nothing new doesn't rewrite sources.json", async (t) => {
   assert.deepEqual(await refreshSources(s.paths, s.o), []);
   assert.equal(existsSync(file), false);
   writeFileSync(file, before);
+});
+
+test("addDefaultSource seeds xb00tt/revamp-patches when there is no sources.json", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  s.publish("1.0.0");
+  const source = await addDefaultSource(s.paths, s.o);
+  assert.equal(source?.location, "xb00tt/revamp-patches");
+  assert.deepEqual(loadSources(s.paths), [source]);
+});
+
+test("addDefaultSource never re-adds the default after the user emptied the list", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  s.publish("1.0.0");
+  mkdirSync(s.paths.config, { recursive: true });
+  writeFileSync(join(s.paths.config, "sources.json"), '{"sources":[]}\n');
+  const requests = s.state.requests.length;
+  assert.equal(await addDefaultSource(s.paths, s.o), undefined);
+  assert.equal(s.state.requests.length, requests, "nothing is fetched");
+  assert.deepEqual(loadSources(s.paths), []);
+});
+
+test("addDefaultSource saves nothing when it can't fetch", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  s.publish("1.0.0");
+  s.state.rawStatus = 500; // the fake API serves only example/bundles, so the fallback fails too
+  await assert.rejects(addDefaultSource(s.paths, s.o), /couldn't fetch bundle\.json from xb00tt\/revamp-patches/);
+  assert.equal(existsSync(join(s.paths.config, "sources.json")), false);
+  s.state.rawStatus = 200;
+  assert.equal((await addDefaultSource(s.paths, s.o))?.location, "xb00tt/revamp-patches");
 });

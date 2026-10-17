@@ -1,11 +1,14 @@
 {
-  "name": "@revamp/cli",
-  "version": "0.1.0",
+  "name": "@revamp-app/cli",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
+  "description": "The revamp command",
   "license": "GPL-3.0-only",
   "scripts": {
     "build": "node scripts/build-sea.ts"
   },
-  "dependencies": { "@revamp/engine": "*" }
+  "exports": { "./format": "./src/format.ts" },
+  "bin": { "revamp": "src/main.ts" },
+  "dependencies": { "@revamp-app/engine": "*" }
 }

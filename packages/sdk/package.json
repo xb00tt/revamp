@@ -1,7 +1,10 @@
 {
-  "name": "@revamp/sdk",
-  "version": "0.1.0",
+  "name": "@revamp-app/sdk",
+  "version": "0.3.0",
   "type": "module",
+  "description": "Declarations and types for Revamp bundle authors",
   "license": "GPL-3.0-only",
-  "exports": { ".": "./src/index.ts", "./shims/*": "./src/shims/*.ts" }
+  "exports": { ".": "./src/index.ts", "./shims/*": "./src/shims/*.ts" },
+  "peerDependencies": { "react": "^18.0.0", "@types/react": "^18.0.0" },
+  "peerDependenciesMeta": { "react": { "optional": true }, "@types/react": { "optional": true } }
 }

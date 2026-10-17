@@ -17,13 +17,15 @@ npm test
 npm run typecheck
 ```
 
-Patch Hydra or Heroic with the bundle in this repo:
+Patch Hydra or Heroic:
 
 ```bash
-npm run build -w @revamp/bundle-official
 npm run revamp -- patches hydra
 npm run revamp -- patch hydra
 ```
+
+Without `--bundle <file>`, the patches come from the default source, `xb00tt/revamp-patches`, which the first of these
+commands adds to `~/.config/revamp/sources.json` and says so. A local bundle under development is `--bundle <file>`.
 
 `revamp patches <app>` lists an app's patches: which are required or on by default, their options, and the
 versions they were tested with. `patch` takes `--enable "<patch>"`, `--disable "<patch>"` and
@@ -32,5 +34,9 @@ needs `--version <v> --force`; it is verified only against the SHA-256 GitHub pu
 
 The other commands are `npm run revamp -- list`, `npm run revamp -- rollback hydra` and
 `npm run revamp -- uninstall hydra`.
+
+The official patches live in [xb00tt/revamp-patches](https://github.com/xb00tt/revamp-patches). Bundle authors install
+`@revamp-app/sdk`, `@revamp-app/engine` and `@revamp-app/cli` from npm: the SDK declares apps, patches and fingerprints,
+the engine describes and runs a bundle, and the CLI is the `revamp` command.
 
 If a Revamped app won't start on Ubuntu 24.04 or newer, see [docs/electron-sandbox.md](docs/electron-sandbox.md).

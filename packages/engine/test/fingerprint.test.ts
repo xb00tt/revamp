@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fingerprint } from "@revamp/sdk";
+import { fingerprint } from "@revamp-app/sdk";
 import { EditBuffer } from "../src/edits.ts";
 import { FingerprintError, Fingerprints } from "../src/fingerprint.ts";
 import { memoryStore, Sources } from "../src/sources.ts";

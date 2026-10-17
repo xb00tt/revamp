@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defineApp, definePatch, fingerprint, option } from "@revamp/sdk";
+import { defineApp, definePatch, fingerprint, option } from "@revamp-app/sdk";
 
 const SHA = "a".repeat(64);
 const base = {

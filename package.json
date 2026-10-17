@@ -7,16 +7,16 @@
     "node": ">=26"
   },
   "workspaces": [
-    "packages/*",
-    "bundles/*"
+    "packages/*"
   ],
   "scripts": {
-    "test": "node --test \"packages/*/test/*.test.ts\" \"bundles/*/test/*.test.ts\"",
-    "test:integration": "npm run build -w @revamp/bundle-official && REVAMP_INTEGRATION=1 node --test \"test/integration/*.test.ts\"",
-    "typecheck": "tsc -p . && tsc -p bundles/official/src/hydra/extension && tsc -p packages/gui",
+    "test": "node --test \"packages/*/test/*.test.ts\" \"test/*.test.ts\"",
+    "test:integration": "REVAMP_INTEGRATION=1 node --test \"test/integration/*.test.ts\"",
+    "typecheck": "tsc -p . && tsc -p packages/gui",
     "revamp": "node packages/cli/src/main.ts",
-    "install:cli": "npm run build -w @revamp/cli && node packages/cli/scripts/install.ts",
-    "gui:install": "npm run install:cli && npm run tauri:build -w @revamp/gui && node packages/gui/scripts/install.ts"
+    "install:cli": "npm run build -w @revamp-app/cli && node packages/cli/scripts/install.ts",
+    "gui:install": "npm run install:cli && npm run tauri:build -w @revamp-app/gui && node packages/gui/scripts/install.ts",
+    "publish:packages": "node scripts/publish-packages.ts"
   },
   "devDependencies": {
     "@electron/asar": "^4.3.1",

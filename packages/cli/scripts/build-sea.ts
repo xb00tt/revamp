@@ -1,4 +1,4 @@
-// npm run build -w @revamp/cli: esbuild packs the CLI and the sandbox runner into one CommonJS file, and
+// npm run build -w @revamp-app/cli: esbuild packs the CLI and the sandbox runner into one CommonJS file, and
 // `node --build-sea` turns that into the single executable dist/revamp (spec §3.3, §4.4).
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";

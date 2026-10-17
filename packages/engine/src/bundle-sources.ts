@@ -159,6 +159,23 @@ function saveSources(paths: Paths, sources: BundleSource[]): void {
   renameSync(`${file}.tmp`, file);
 }
 
+export const DEFAULT_SOURCE = "xb00tt/revamp-patches";
+
+/**
+ * Revamp comes with the default source added: the first time a command needs the sources and sources.json doesn't exist,
+ * this adds it the way `sources add` would, without the prompt (the source itself is the trust anchor). Once the file
+ * exists, whatever its list, nothing is added again. A failure saves nothing, so the next run tries again.
+ */
+export async function addDefaultSource(paths: Paths, o: SourceFetchOptions = {}): Promise<BundleSource | undefined> {
+  if (existsSync(sourcesFile(paths))) return undefined;
+  const { source } = await prepareSource(paths, DEFAULT_SOURCE, o);
+  // ponytail: a check-then-rename, not a lock. Two first runs within the same millisecond can both write. Both write the
+  // same source, so this is harmless.
+  if (existsSync(sourcesFile(paths))) return undefined;
+  saveSources(paths, [source]);
+  return source;
+}
+
 const sameLocation = (s: BundleSource, location: string) => s.location === (sourceKind(location) === "file" ? resolve(location) : location);
 
 export function addSource(paths: Paths, source: BundleSource): void {

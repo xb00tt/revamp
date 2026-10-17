@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import {
   addSource,
   checkUpdates,
+  DEFAULT_SOURCE,
   describe,
   listInstalls,
   listPatches,
@@ -25,8 +26,8 @@ import {
   type JobProgress,
   type SourceCandidate,
   type UpdateOptions,
-} from "@revamp/engine";
-import { bundleFor } from "./bundle-for.ts";
+} from "@revamp-app/engine";
+import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { formatPatchResult } from "./format.ts";
 
 export interface ServeOptions extends UpdateOptions {
@@ -64,6 +65,13 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
   const descriptions = new Map<string, Promise<BundleDescription>>(); // bundles are content-addressed, so a path's description never changes
   const describeOnce = (path: string) => descriptions.get(path) ?? descriptions.set(path, describe(path)).get(path)!;
   const candidates = new Map<string, SourceCandidate>();
+  let seeding: Promise<boolean> | undefined;
+  /** The default source goes in on the first request that reads the sources; after a failure (offline) the next one tries again. */
+  const seeded = () =>
+    (seeding ??= seedDefaultSource(o.paths, o.log, o).then((ok) => {
+      if (!ok) seeding = undefined;
+      return ok;
+    }));
   const lastCheck = () => loadLastCheck(o.paths);
   /** A job's log lines and progress go to the window as notifications tagged with its request id; logs also to stderr. */
   const report = (id: unknown, notify: Notify) => ({
@@ -76,6 +84,7 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
 
   /** Installed apps plus the apps the sources offer, so a first install starts from the list too. */
   async function apps() {
+    await seeded();
     const installs = listInstalls(o.paths);
     const ids = [...new Set([...installs.map((a) => a.appId), ...loadSources(o.paths).flatMap((s) => s.apps)])];
     const list = [];
@@ -131,7 +140,10 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
       skipVersion(o.paths, str(p, "appId"), p.version === null ? null : str(p, "version"));
       return {};
     },
-    "sources.list": () => loadSources(o.paths),
+    "sources.list": async () => {
+      await seeded();
+      return loadSources(o.paths);
+    },
     "sources.prepare": async (p) => {
       const candidate = await prepareSource(o.paths, str(p, "location"), o);
       const token = randomUUID();
@@ -140,11 +152,12 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
       return { token, source: candidate.source, manifest, apps: apps.map((a) => ({ id: a.id, name: a.name, versions: Object.keys(a.versions) })), changelog: candidate.changelog };
     },
     // Only a candidate this session prepared can be trusted: the pin is what the user saw, not what a message claims.
-    "sources.add": (p) => {
+    "sources.add": async (p) => {
       const token = str(p, "token");
       const candidate = candidates.get(token);
       if (!candidate) throw new RpcError(INVALID_PARAMS, "that source preview is gone; fetch the source again");
       candidates.delete(token);
+      if (candidate.source.location !== DEFAULT_SOURCE) await seeded(); // adding the default by hand is the seed (as in main.ts)
       addSource(o.paths, candidate.source);
       return candidate.source;
     },

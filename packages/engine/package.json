@@ -1,14 +1,15 @@
 {
-  "name": "@revamp/engine",
-  "version": "0.1.0",
+  "name": "@revamp-app/engine",
+  "version": "0.3.0",
   "type": "module",
+  "description": "Revamp's patch engine: download, verify, unpack, fingerprint, edit, install",
   "license": "GPL-3.0-only",
   "exports": {
     ".": "./src/index.ts",
     "./runner": "./src/runner.ts"
   },
   "dependencies": {
-    "@revamp/sdk": "*",
+    "@revamp-app/sdk": "*",
     "acorn": "^8.19.0",
     "xz-decompress": "^0.2.3"
   }

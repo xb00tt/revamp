@@ -1,13 +1,11 @@
-# Spec §7.4: on every push, build and unit-test, then dry-run every app version the bundle lists against the real
-# release. Stable versions must apply every patch; experimental ones only report.
+# On every push: typecheck and unit tests. The dry-run of every app version against the real releases runs in
+# xb00tt/revamp-patches, where the official bundle lives.
 name: CI
 on: push
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    outputs:
-      include: ${{ steps.matrix.outputs.include }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,38 +15,3 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build -w @revamp/bundle-official
-      - id: matrix
-        run: |
-          node -e '
-            const { apps } = JSON.parse(require("node:fs").readFileSync("bundles/official/dist/patches.json", "utf8"));
-            const include = apps.flatMap((a) => Object.entries(a.versions).map(([version, v]) => ({ app: a.id, version, experimental: Boolean(v.experimental) })));
-            console.log(`include=${JSON.stringify(include)}`);
-          ' >> "$GITHUB_OUTPUT"
-
-  dry-run:
-    needs: test
-    runs-on: ubuntu-latest
-    name: dry-run ${{ matrix.app }} ${{ matrix.version }}${{ matrix.experimental && ' (experimental)' || '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.test.outputs.include) }}
-    # Experimental versions report only.
-    continue-on-error: ${{ matrix.experimental }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26
-          cache: npm
-      - run: npm ci
-      - run: npm run build -w @revamp/bundle-official
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/revamp/releases/${{ matrix.app }}/${{ matrix.version }}
-          key: release-${{ matrix.app }}-${{ matrix.version }}
-      # Exit code 0 only when every selected patch applies.
-      - run: >-
-          node packages/cli/src/main.ts patch ${{ matrix.app }} --version ${{ matrix.version }} --dry-run
-          --bundle bundles/official/dist/official.mjs ${{ matrix.experimental && '--force' || '' }}

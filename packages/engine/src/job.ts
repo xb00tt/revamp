@@ -1,5 +1,5 @@
 import { parse } from "acorn";
-import type { AppDef, Manifest, Patch, PatchContext, TextFile } from "@revamp/sdk";
+import type { AppDef, Manifest, Patch, PatchContext, TextFile } from "@revamp-app/sdk";
 import { assertAsarPath } from "./asar.ts";
 import type { Selection } from "./config.ts";
 import { EditBuffer } from "./edits.ts";

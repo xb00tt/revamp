@@ -4,13 +4,13 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { revampPaths } from "@revamp/engine";
+import { revampPaths } from "@revamp-app/engine";
 
 const paths = revampPaths();
 const cli = join(paths.data, "bin", "revamp");
 if (!existsSync(cli)) throw new Error(`${cli} is missing: install the CLI first (npm run install:cli)`);
 const built = fileURLToPath(new URL("../src-tauri/target/release/revamp-gui", import.meta.url));
-if (!existsSync(built)) throw new Error(`${built} is missing: build it first (npm run tauri:build -w @revamp/gui)`);
+if (!existsSync(built)) throw new Error(`${built} is missing: build it first (npm run tauri:build -w @revamp-app/gui)`);
 const icon = fileURLToPath(new URL("../src-tauri/icons/icon.png", import.meta.url));
 if (!existsSync(icon)) throw new Error(`${icon} is missing`); // checked before anything is written: no half install
 

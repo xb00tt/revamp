@@ -1,4 +1,4 @@
-import type { BundleSource } from "@revamp/engine";
+import type { BundleSource } from "@revamp-app/engine";
 import { useEffect, useState } from "react";
 import { plain } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
@@ -135,7 +135,7 @@ export function Sources({ rpc, onChanged }: { rpc: Rpc; onChanged: () => Promise
       {sources.length === 0 && (
         <div className="card">
           <h3>Add your first source</h3>
-          <p className="muted">Try xb00tt/revamp, the official bundle for Hydra and Heroic.</p>
+          <p className="muted">Add xb00tt/revamp-patches, the official patches for Hydra and Heroic.</p>
         </div>
       )}
     </section>

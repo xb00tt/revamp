@@ -5,7 +5,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
 /**
- * Dev only (`npm run dev -w @revamp/gui` in a browser): the page talks to `revamp serve`, run from this repo's source,
+ * Dev only (`npm run dev -w @revamp-app/gui` in a browser): the page talks to `revamp serve`, run from this repo's source,
  * over Vite's own websocket. It acts on the real home unless HOME points elsewhere.
  */
 function revampServe(): Plugin {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defineApp, definePatch, fingerprint, option, type Patch } from "@revamp/sdk";
+import { defineApp, definePatch, fingerprint, option, type Patch } from "@revamp-app/sdk";
 import { describeBundle, runJob, type BundleModule, type JobInput } from "../src/job.ts";
 import { memoryStore } from "../src/sources.ts";
 

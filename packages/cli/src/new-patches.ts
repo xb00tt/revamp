@@ -1,4 +1,4 @@
-import type { NewPatchesAnswer, NewPatchesQuestion } from "@revamp/engine";
+import type { NewPatchesAnswer, NewPatchesQuestion } from "@revamp-app/engine";
 import { printable } from "./format.ts";
 
 /** The CLI's answer to "this re-patch would turn on new patches": list them, then --yes, a prompt, or off for this run. */

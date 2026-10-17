@@ -3,7 +3,7 @@ import { chmodSync, copyFileSync, mkdirSync, renameSync, rmSync, symlinkSync } f
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { revampPaths } from "@revamp/engine";
+import { revampPaths } from "@revamp-app/engine";
 
 const bin = join(revampPaths().data, "bin", "revamp");
 const link = join(process.env.HOME || homedir(), ".local/bin/revamp");

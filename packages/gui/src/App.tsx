@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { JobProgress } from "@revamp/engine";
+import type { JobProgress } from "@revamp-app/engine";
 import { AppDetail } from "./AppDetail.tsx";
 import { JobView, type JobRequest } from "./JobView.tsx";
 import { badgeFor, checkFor, plain, progressLabel, type AppsList } from "./model.ts";

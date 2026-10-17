@@ -4,15 +4,22 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { addSource, prepareSource, removeSource, revampPaths } from "@revamp/engine";
+import { addSource, prepareSource, removeSource, revampPaths } from "@revamp-app/engine";
 import { demoDeb, writeDemoBundle } from "../../engine/test/helpers/demo.ts";
 import { createHandler } from "../src/serve.ts";
 
 const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
+/** A home with an empty sources.json: serve seeds the default source only while the file doesn't exist, and tests stay offline. */
+function freshHome(prefix: string): string {
+  const home = mkdtempSync(join(tmpdir(), prefix));
+  mkdirSync(join(home, ".config/revamp"), { recursive: true });
+  writeFileSync(join(home, ".config/revamp/sources.json"), '{"sources":[]}\n');
+  return home;
+}
 
 /** A file source with the demo bundle, a fake GitHub serving demo 1.0.0, and a handler that records notifications. */
 async function setup() {
@@ -105,8 +112,62 @@ test("protocol errors follow JSON-RPC 2.0, and notifications get no reply", asyn
   assert.equal(await raw('{"jsonrpc":"2.0","method":"sources.list"}'), undefined);
 });
 
+/** A fresh home and a fake raw.githubusercontent.com that serves xb00tt/revamp-patches' bundle.json for the demo bundle while `state.online`. */
+async function defaultSourceSetup(t: { after: (fn: () => void) => void }) {
+  const root = mkdtempSync(join(tmpdir(), "revamp-serve-seed-"));
+  const bundle = join(root, "demo.mjs");
+  writeDemoBundle(bundle, { sha256: "a".repeat(64) });
+  const bytes = readFileSync(bundle);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const state = { online: true };
+  const server = createServer((req, res) => {
+    if (req.url === "/raw/xb00tt/revamp-patches/HEAD/bundle.json" && state.online) res.end(JSON.stringify({ name: "Demo bundle", version: "1.0.0", sha256, download_url: `${base}/dl/demo.mjs` }));
+    else if (req.url === "/dl/demo.mjs") res.end(bytes);
+    else {
+      res.statusCode = 500;
+      res.end();
+    }
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const paths = revampPaths({ HOME: join(root, "home") });
+  const logs: string[] = [];
+  const handle = createHandler({ paths, rawBaseUrl: `${base}/raw`, apiBaseUrl: `${base}/api`, log: (l) => logs.push(l) });
+  let next = 1;
+  const call = async (method: string, params?: unknown) => (await handle(JSON.stringify({ jsonrpc: "2.0", id: next++, method, params }), () => {})) as { result?: any; error?: { code: number; message: string } };
+  const locations = async () => ((await call("sources.list")).result as Array<{ location: string }>).map((s) => s.location);
+  return { state, sha256, paths, logs, call, locations, added: `Added the default source xb00tt/revamp-patches: "Demo bundle" 1.0.0 (sha256 ${sha256})` };
+}
+
+test("the first request that reads the sources adds the default source; after a failure the next one tries again", async (t) => {
+  const s = await defaultSourceSetup(t);
+  s.state.online = false;
+  assert.deepEqual(await s.locations(), []);
+  assert.match(s.logs[0], /^Warning: couldn't add the default source xb00tt\/revamp-patches: couldn't fetch bundle\.json from xb00tt\/revamp-patches/);
+  assert.equal(existsSync(join(s.paths.config, "sources.json")), false, "an offline first run saves nothing");
+
+  s.state.online = true;
+  const [a, b] = await Promise.all([s.locations(), s.locations()]); // the same session retries, and both wait for the one seeding
+  assert.deepEqual([a, b], [["xb00tt/revamp-patches"], ["xb00tt/revamp-patches"]]);
+  assert.deepEqual(s.logs.slice(1), [s.added]);
+  assert.deepEqual(await s.locations(), ["xb00tt/revamp-patches"]);
+  assert.equal(s.logs.length, 2, "once seeded, nothing seeds again");
+});
+
+test("adding the default source by hand on a fresh home is the seed: one fetch, one source, no seeding line", async (t) => {
+  const s = await defaultSourceSetup(t);
+  const preview = (await s.call("sources.prepare", { location: "xb00tt/revamp-patches" })).result;
+  assert.equal(preview.source.location, "xb00tt/revamp-patches");
+  const added = await s.call("sources.add", { token: preview.token });
+  assert.ifError(added.error);
+  assert.equal(added.result.location, "xb00tt/revamp-patches");
+  assert.deepEqual(await s.locations(), ["xb00tt/revamp-patches"]);
+  assert.deepEqual(s.logs, []);
+});
+
 test("revamp serve speaks over stdin and stdout and exits when stdin closes", async () => {
-  const home = mkdtempSync(join(tmpdir(), "revamp-serve-cli-"));
+  const home = freshHome("revamp-serve-cli-");
   const child = spawn(process.execPath, [MAIN, "serve"], { env: { ...process.env, HOME: home, XDG_DATA_HOME: "", XDG_CONFIG_HOME: "", XDG_CACHE_HOME: "", XDG_STATE_HOME: "" } });
   let out = "";
   child.stdout.on("data", (c: Buffer) => (out += c));
@@ -120,7 +181,7 @@ test("revamp serve speaks over stdin and stdout and exits when stdin closes", as
 });
 
 test("revamp serve finishes its work when the window closes its end of stdout", async () => {
-  const home = mkdtempSync(join(tmpdir(), "revamp-serve-epipe-"));
+  const home = freshHome("revamp-serve-epipe-");
   const child = spawn(process.execPath, [MAIN, "serve"], { env: { ...process.env, HOME: home, XDG_DATA_HOME: "", XDG_CONFIG_HOME: "", XDG_CACHE_HOME: "", XDG_STATE_HOME: "" } });
   const exited = new Promise((r) => child.on("exit", r));
   let err = "";

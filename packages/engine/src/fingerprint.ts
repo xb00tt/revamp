@@ -1,4 +1,4 @@
-import type { Fingerprint } from "@revamp/sdk";
+import type { Fingerprint } from "@revamp-app/sdk";
 import { fromPattern, MatchImpl, type CaptureSpec, type Host } from "./match.ts";
 import { compilePattern, findMatches } from "./pattern.ts";
 

@@ -1,4 +1,4 @@
-import type { AppCheck, PatchAppResult } from "@revamp/engine";
+import type { AppCheck, PatchAppResult } from "@revamp-app/engine";
 import { useEffect, useState } from "react";
 import type { JobRequest } from "./JobView.tsx";
 import { forVersion, answerNewPatches, initialToggles, newPatchesNote, optionFlags, plain, releaseNote, selectionFlags, type AppRow, type Listing } from "./model.ts";

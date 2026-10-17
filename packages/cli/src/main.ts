@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -7,6 +8,7 @@ import {
   addSource,
   checkMessage,
   checkUpdates,
+  DEFAULT_SOURCE,
   listInstalls,
   listPatches,
   loadSources,
@@ -18,9 +20,9 @@ import {
   uninstall,
   updateApp,
   type Paths,
-} from "@revamp/engine";
+} from "@revamp-app/engine";
 import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandidate, formatSources, printable } from "./format.ts";
-import { bundleFor } from "./bundle-for.ts";
+import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
 import { serve } from "./serve.ts";
@@ -58,12 +60,15 @@ async function confirm(question: string): Promise<boolean> {
 
 async function sources(paths: Paths, sub: string | undefined, location: string | undefined, yes: boolean): Promise<number> {
   const needLocation = () => {
-    if (!location) throw new Error(`"sources ${sub}" needs a source, e.g. revamp sources ${sub} xb00tt/revamp`);
+    if (!location) throw new Error(`"sources ${sub}" needs a source, e.g. revamp sources ${sub} ${DEFAULT_SOURCE}`);
     return location;
   };
   switch (sub) {
     case "add": {
-      const candidate = await prepareSource(paths, needLocation());
+      const loc = needLocation();
+      // The default goes in first, so a first `sources add` of another repo never takes its place; adding the default itself is the seed.
+      if (loc !== DEFAULT_SOURCE) await seedDefaultSource(paths, printError);
+      const candidate = await prepareSource(paths, loc);
       print(formatSourceCandidate(candidate));
       if (!yes && !(await confirm("Trust this bundle and add the source?"))) return 1;
       addSource(paths, candidate.source);
@@ -71,6 +76,7 @@ async function sources(paths: Paths, sub: string | undefined, location: string |
       return 0;
     }
     case "list":
+      await seedDefaultSource(paths, printError);
       print(formatSources(loadSources(paths)));
       return 0;
     case "remove": {
@@ -118,9 +124,11 @@ async function main(argv: string[]): Promise<number> {
   const confirmNewPatches = newPatchesPrompt({ yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, interactive: process.stdin.isTTY === true, confirm, print });
   switch (command) {
     case "patch": {
+      const id = needApp();
+      if (!values.bundle) await seedDefaultSource(paths, printError);
       const result = await patchApp({
-        appId: needApp(),
-        bundlePath: await bundleFor(paths, needApp(), values.bundle, printError),
+        appId: id,
+        bundlePath: await bundleFor(paths, id, values.bundle, printError),
         version: values.version,
         force: values.force,
         enable: values.enable,
@@ -134,9 +142,12 @@ async function main(argv: string[]): Promise<number> {
       print(formatPatchResult(result));
       return result.exitCode;
     }
-    case "patches":
-      print(formatPatchList(await listPatches(await bundleFor(paths, needApp(), values.bundle, printError), needApp(), values.version)));
+    case "patches": {
+      const id = needApp();
+      if (!values.bundle) await seedDefaultSource(paths, printError);
+      print(formatPatchList(await listPatches(await bundleFor(paths, id, values.bundle, printError), id, values.version)));
       return 0;
+    }
     case "list":
       print(formatInstalls(listInstalls(paths)));
       return 0;
@@ -151,6 +162,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "check": {
+      await seedDefaultSource(paths, printError);
       const r = await checkUpdates({ paths, log: (line) => printError(line) });
       for (const line of r.sources) print(line);
       if (r.apps.length === 0) print("No Revamped apps installed.");
@@ -165,6 +177,7 @@ async function main(argv: string[]): Promise<number> {
       return r.apps.some((c) => c.status === "failed") ? 1 : 0;
     }
     case "update": {
+      await seedDefaultSource(paths, printError);
       const ids = appId ? [appId] : listInstalls(paths).filter((a) => a.current).map((a) => a.appId);
       if (ids.length === 0) print("No Revamped apps installed.");
       let code = 0;

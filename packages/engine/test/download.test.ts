@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { downloadVerified, releaseDigest } from "../src/download.ts";
@@ -16,7 +16,10 @@ async function serve() {
   const server = createServer((req, res) => {
     hits++;
     if (req.url === "/file.deb") res.end(body);
-    else {
+    else if (req.url === "/slow.deb") {
+      res.write(body.subarray(0, 100));
+      setTimeout(() => res.end(body.subarray(100)), 50);
+    } else {
       res.statusCode = 404;
       res.end("nope");
     }
@@ -33,7 +36,17 @@ test("downloads, verifies, and leaves no .part file", async (t) => {
   const dest = join(tmp(), "a", "file.deb");
   assert.equal(await downloadVerified({ url: `${s.base}/file.deb`, dest, sha256: sha }), "downloaded");
   assert.deepEqual(readFileSync(dest), body);
-  assert.equal(existsSync(`${dest}.part`), false);
+  assert.deepEqual(readdirSync(join(dest, "..")), ["file.deb"]);
+});
+
+test("the .part file in flight is per process, so two first runs at once never share one", async (t) => {
+  const s = await serve();
+  t.after(s.close);
+  const dest = join(tmp(), "file.deb");
+  const seen = new Set<string>();
+  // /slow sends the body in two parts, so the second progress event comes well after the file was opened
+  await downloadVerified({ url: `${s.base}/slow.deb`, dest, sha256: sha, onProgress: () => readdirSync(join(dest, "..")).forEach((f) => seen.add(f)) });
+  assert.deepEqual([...seen], [`file.deb.${process.pid}.part`]);
 });
 
 test("a cached file with the right hash is reused without a request", async (t) => {
@@ -59,7 +72,7 @@ test("a stale .part from a crashed run is overwritten", async (t) => {
   const s = await serve();
   t.after(s.close);
   const dest = join(tmp(), "file.deb");
-  writeFileSync(`${dest}.part`, "garbage from an earlier crash");
+  writeFileSync(`${dest}.${process.pid}.part`, "garbage from an earlier crash");
   assert.equal(await downloadVerified({ url: `${s.base}/file.deb`, dest, sha256: sha }), "downloaded");
   assert.deepEqual(readFileSync(dest), body);
 });
@@ -70,7 +83,7 @@ test("a hash mismatch rejects and keeps nothing", async (t) => {
   const dest = join(tmp(), "file.deb");
   await assert.rejects(downloadVerified({ url: `${s.base}/file.deb`, dest, sha256: "0".repeat(64) }), /SHA-256 mismatch/);
   assert.equal(existsSync(dest), false);
-  assert.equal(existsSync(`${dest}.part`), false);
+  assert.equal(existsSync(`${dest}.${process.pid}.part`), false);
 });
 
 test("HTTP errors reject with the status", async (t) => {

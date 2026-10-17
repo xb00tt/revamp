@@ -17,7 +17,7 @@ export async function connect(): Promise<Transport> {
     return { send: (line) => void child.write(`${line}\n`), onLine: (l) => void (listener = l), onClose: (l) => void (onClose = l) };
   }
   const hot = import.meta.hot;
-  if (!hot) throw new Error("Revamp's window runs in the Revamp app, or in a browser on `npm run dev -w @revamp/gui`.");
+  if (!hot) throw new Error("Revamp's window runs in the Revamp app, or in a browser on `npm run dev -w @revamp-app/gui`.");
   return {
     send: (line) => hot.send("revamp:rpc", line),
     onLine: (l) => hot.on("revamp:rpc", l),
