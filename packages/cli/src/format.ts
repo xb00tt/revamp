@@ -1,4 +1,4 @@
-import { patchCounts, type BundleSource, type InstalledApp, type PatchAppResult, type PatchListing, type PatchStatus, type SourceCandidate } from "@revamp-app/engine";
+import { DEFAULT_SOURCE, patchCounts, type BundleSource, type InstalledApp, type PatchAppResult, type PatchListing, type PatchStatus, type SourceCandidate } from "@revamp-app/engine";
 
 const MARK: Record<PatchStatus, string> = { applied: "✓", failed: "✗", skipped: "–", incompatible: " ", disabled: " " };
 
@@ -75,7 +75,7 @@ export function formatSourceCandidate(c: SourceCandidate): string {
 }
 
 export function formatSources(sources: BundleSource[]): string {
-  if (sources.length === 0) return "No bundle sources. Add one: revamp sources add xb00tt/revamp";
+  if (sources.length === 0) return `No bundle sources. Add one: revamp sources add ${DEFAULT_SOURCE}`;
   return sources
     .map((s) => `${oneLine(s.location)}\n${oneLine(`  "${s.name}" ${s.version} (${s.kind}), apps: ${s.apps.join(", ")}`)}\n  SHA-256: ${s.sha256}`)
     .join("\n");

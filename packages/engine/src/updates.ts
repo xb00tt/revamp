@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, findApp, fitsVersion, patchApp, patchCounts, type PatchAppOptions, type PatchAppResult } from "./api.ts";
-import { bundleForApp, refreshSources, type BundleSource, type SourceFetchOptions } from "./bundle-sources.ts";
+import { bundleForApp, DEFAULT_SOURCE, refreshSources, type BundleSource, type SourceFetchOptions } from "./bundle-sources.ts";
 import { loadSelection } from "./config.ts";
 import { listInstalls, type InstalledApp } from "./install.ts";
 import { patchesForApp, type AppInfo, type BundleDescription } from "./job.ts";
@@ -83,7 +83,7 @@ export async function latestRelease(app: AppInfo, o: Pick<UpdateOptions, "apiBas
 /** An installed app's bundle (from the sources) and its newest release. */
 async function newest(appId: string, o: UpdateOptions) {
   const choice = await bundleForApp(o.paths, appId, o);
-  if (!choice) throw new Error(`no bundle source has "${appId}"; add one, e.g. revamp sources add xb00tt/revamp`);
+  if (!choice) throw new Error(`no bundle source has "${appId}"; add one, e.g. revamp sources add ${DEFAULT_SOURCE}`);
   for (const w of choice.warnings) o.log?.(`Warning: ${w}`);
   const description = await describe(choice.bundlePath);
   const app = findApp(description, appId);

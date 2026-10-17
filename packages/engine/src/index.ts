@@ -33,8 +33,10 @@ export {
   type UpdateOptions,
 } from "./updates.ts";
 export {
+  addDefaultSource,
   addSource,
   bundleForApp,
+  DEFAULT_SOURCE,
   loadSources,
   prepareSource,
   refreshSources,

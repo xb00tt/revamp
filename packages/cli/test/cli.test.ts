@@ -11,7 +11,14 @@ import { writeDemoBundle } from "../../engine/test/helpers/demo.ts";
 import { formatInstalls, formatPatchList, formatPatchResult, printable } from "../src/format.ts";
 
 const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
-const cli = (args: string[], home = mkdtempSync(join(tmpdir(), "revamp-cli-")), input = "") =>
+/** A home with an empty sources.json: the CLI seeds the default source only while the file doesn't exist, and tests stay offline. */
+function freshHome(): string {
+  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  mkdirSync(join(home, ".config/revamp"), { recursive: true });
+  writeFileSync(join(home, ".config/revamp/sources.json"), '{"sources":[]}\n');
+  return home;
+}
+const cli = (args: string[], home = freshHome(), input = "") =>
   spawnSync(process.execPath, [MAIN, ...args], {
     encoding: "utf8",
     input,
@@ -128,7 +135,7 @@ test("revamp patches lists a bundle's patches for an app; bad --option fails bef
 });
 
 test("revamp sources adds a file source once confirmed, patches use it, and remove drops it", () => {
-  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const home = freshHome();
   const bundle = join(home, "demo.mjs");
   writeDemoBundle(bundle, { sha256: "a".repeat(64) });
   const sha256 = createHash("sha256").update(readFileSync(bundle)).digest("hex");
@@ -139,7 +146,7 @@ test("revamp sources adds a file source once confirmed, patches use it, and remo
     declined.stdout,
     `Bundle "Demo bundle" 1.0.0 by test (GPL-3.0-only), from ${bundle}\n  Apps: Demo 1.0.0, 2.0.0\n  SHA-256: ${sha256}\nTrust this bundle and add the source? [y/N] `,
   );
-  assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp\n");
+  assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp-patches\n");
 
   assert.match(cli(["sources", "add", bundle, "--yes"], home).stdout, new RegExp(`\nAdded ${bundle}\\.\n$`));
   assert.equal(cli(["sources", "list"], home).stdout, `${bundle}\n  "Demo bundle" 1.0.0 (file), apps: demo\n  SHA-256: ${sha256}\n`);
@@ -148,13 +155,13 @@ test("revamp sources adds a file source once confirmed, patches use it, and remo
   assert.match(listing.stdout, /^Demo 1\.0\.0, from bundle "Demo bundle" 1\.0\.0\n/);
 
   assert.equal(cli(["sources", "remove", bundle], home).stdout, `Removed ${bundle} ("Demo bundle" 1.0.0).\n`);
-  assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp\n");
+  assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp-patches\n");
   assert.match(cli(["sources", "nope"], home).stderr, /^Unknown sources command "nope"\./);
 });
 
 test("bundle text can't move the cursor or clear the screen before the trust prompt", () => {
   assert.equal(printable("a\x1b[2Kb\rc\u009b\nd\te"), "a\\x1b[2Kb\\x0dc\\x9b\nd\te");
-  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const home = freshHome();
   const bundle = join(home, "evil.mjs");
   writeDemoBundle(bundle, { sha256: "a".repeat(64) });
   writeFileSync(bundle, readFileSync(bundle, "utf8").replace('name: "Demo bundle"', 'name: "Demo\\u001b[2K\\r bundle"'));
@@ -164,17 +171,17 @@ test("bundle text can't move the cursor or clear the screen before the trust pro
 });
 
 test("end of input at the trust prompt answers no: exit 1, nothing saved", () => {
-  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const home = freshHome();
   const bundle = join(home, "demo.mjs");
   writeDemoBundle(bundle, { sha256: "a".repeat(64) });
   const r = cli(["sources", "add", bundle], home);
   assert.equal(r.status, 1);
   assert.equal(r.stderr, "");
-  assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp\n");
+  assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp-patches\n");
 });
 
 test("check and update say so when nothing is installed", () => {
-  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const home = freshHome();
   for (const command of ["check", "update"]) {
     const r = cli([command], home);
     assert.equal(r.status, 0, r.stderr);
@@ -184,7 +191,7 @@ test("check and update say so when nothing is installed", () => {
 });
 
 test("update with no app tries every installed app and exits 1 when they fail", () => {
-  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const home = freshHome();
   for (const id of ["alpha", "beta"]) {
     const dir = join(home, ".local/share/revamp/apps", id);
     mkdirSync(join(dir, "1.0.0"), { recursive: true });
@@ -197,7 +204,7 @@ test("update with no app tries every installed app and exits 1 when they fail", 
 });
 
 test("the sources prompt can't get fake lines from newlines in one-line bundle fields", () => {
-  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const home = freshHome();
   const bundle = join(home, "evil.mjs");
   writeDemoBundle(bundle, { sha256: "a".repeat(64) });
   writeFileSync(bundle, readFileSync(bundle, "utf8").replace('name: "Demo bundle"', 'name: "Demo\\n  SHA-256: ffff"'));
@@ -207,7 +214,7 @@ test("the sources prompt can't get fake lines from newlines in one-line bundle f
 });
 
 test("the timer needs the installed binary", () => {
-  const home = mkdtempSync(join(tmpdir(), "revamp-cli-"));
+  const home = freshHome();
   const bin = join(home, ".local/share/revamp/bin/revamp");
   assert.equal(cli(["timer", "enable"], home).stderr, `revamp: the timer runs the installed revamp (${bin}): run npm run install:cli, then revamp timer enable\n`);
   assert.match(cli(["timer"]).stderr, /^"timer" needs enable or disable\./);
