@@ -1,4 +1,4 @@
-import { definePatch, fingerprint, type Match } from "@revamp/sdk";
+import { definePatch, fingerprint, type Match } from "@revamp-app/sdk";
 
 /** The fork's strings for Hydra's `library` namespace, by Hydra's language code. Other languages fall back to en. */
 export const LIBRARY_STRINGS: Record<string, Record<string, string>> = {

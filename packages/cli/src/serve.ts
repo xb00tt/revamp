@@ -25,7 +25,7 @@ import {
   type JobProgress,
   type SourceCandidate,
   type UpdateOptions,
-} from "@revamp/engine";
+} from "@revamp-app/engine";
 import { bundleFor } from "./bundle-for.ts";
 import { formatPatchResult } from "./format.ts";
 

@@ -8,7 +8,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { addSource, prepareSource, removeSource, revampPaths } from "@revamp/engine";
+import { addSource, prepareSource, removeSource, revampPaths } from "@revamp-app/engine";
 import { demoDeb, writeDemoBundle } from "../../engine/test/helpers/demo.ts";
 import { createHandler } from "../src/serve.ts";
 

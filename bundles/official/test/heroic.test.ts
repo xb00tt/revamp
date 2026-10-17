@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { memoryStore, runJob, type Selection } from "@revamp/engine";
+import { memoryStore, runJob, type Selection } from "@revamp-app/engine";
 import * as bundle from "../src/index.ts";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/heroic-2.22.3/${name}`, import.meta.url), "utf8");

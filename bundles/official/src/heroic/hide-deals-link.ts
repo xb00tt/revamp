@@ -1,4 +1,4 @@
-import { definePatch, fingerprint } from "@revamp/sdk";
+import { definePatch, fingerprint } from "@revamp-app/sdk";
 import { heroic } from "../apps.ts";
 
 /** Minified: `d.jsx(ut,{url:"/discounts",icon:X9,label:e("discounts.sidebar","Deals"),…})` in build/assets/App.js. */

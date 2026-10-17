@@ -1,5 +1,5 @@
 // bundle.json: what a bundle source fetches to find, verify and describe a published bundle (spec §7.1).
-import type { Manifest } from "@revamp/sdk";
+import type { Manifest } from "@revamp-app/sdk";
 
 export interface BundleJson {
   name: string;

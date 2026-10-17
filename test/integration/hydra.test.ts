@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFile, getRawHeader, listPackage } from "@electron/asar";
-import { patchApp, revampPaths } from "@revamp/engine";
+import { patchApp, revampPaths } from "@revamp-app/engine";
 
 const BUNDLE = fileURLToPath(new URL("../../bundles/official/dist/official.mjs", import.meta.url));
 const enabled = process.env.REVAMP_INTEGRATION === "1";

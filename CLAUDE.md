@@ -16,11 +16,11 @@ npm test                                    # all unit tests (node --test, TS ru
 npm run typecheck                           # three tsc --noEmit projects: the repo, the TSX extension, the GUI
 node --test packages/engine/test/api.test.ts                       # one test file
 node --test --test-name-pattern='unlisted version' packages/engine/test/api.test.ts   # one test
-npm run build -w @revamp/bundle-official    # scripts/build.ts: the extensions, then dist/official.mjs, patches.json, bundle.json
-npm run build -w @revamp/cli                # packages/cli/dist/revamp, the single executable (SEA)
+npm run build -w @revamp-app/bundle-official    # scripts/build.ts: the extensions, then dist/official.mjs, patches.json, bundle.json
+npm run build -w @revamp-app/cli                # packages/cli/dist/revamp, the single executable (SEA)
 npm run install:cli                         # builds the SEA and installs it; ~/.local/bin/revamp links to it
-npm run dev -w @revamp/gui                  # the window's screens in a browser at localhost:1420, on `revamp serve` from source
-npm run tauri:dev -w @revamp/gui            # the real window (Tauri) with reload; tauri:build makes target/release/revamp-gui
+npm run dev -w @revamp-app/gui                  # the window's screens in a browser at localhost:1420, on `revamp serve` from source
+npm run tauri:dev -w @revamp-app/gui            # the real window (Tauri) with reload; tauri:build makes target/release/revamp-gui
 npm run gui:install                         # installs the CLI, builds the window, puts "Revamp" in the menu
 npm run test:integration                    # builds the bundle, patches the REAL releases into temp homes, tests the SEA
 npm run revamp -- patches hydra             # CLI from source; also: patch <app> [--version v --force]
@@ -28,11 +28,11 @@ npm run revamp -- patches hydra             # CLI from source; also: patch <app>
                                             #   [--bundle file] [--dry-run], list, rollback <app>, uninstall <app>,
                                             #   sources add/list/remove, check [--notify], update [app] [--force] [--yes],
                                             #   timer enable|disable, serve
-npm run release -w @revamp/bundle-official  # owner only: GitHub release bundle-v<version>, then commits bundle.json
+npm run release -w @revamp-app/bundle-official  # owner only: GitHub release bundle-v<version>, then commits bundle.json
 ```
 
 - Without `--bundle`, the CLI takes an app's bundle from the first source that has it (`~/.config/revamp/sources.json`, bundles cached as `~/.cache/revamp/bundles/<sha256>.mjs`). Only when no source has the app and it runs from the repo does it use `bundles/official/dist/official.mjs`. When a source has the app, the CLI uses that source's pinned bundle and rebuilding changes nothing: while developing patches, pass `--bundle bundles/official/dist/official.mjs` or remove the source.
-- `npm run dev -w @revamp/gui` acts on the real home (installs, sources). For experiments start it as `XDG_CACHE_HOME="$HOME/.cache" HOME=/tmp/x npm run dev -w @revamp/gui`: cache first, because bash applies `HOME=… XDG_CACHE_HOME=$HOME/…` left to right.
+- `npm run dev -w @revamp-app/gui` acts on the real home (installs, sources). For experiments start it as `XDG_CACHE_HOME="$HOME/.cache" HOME=/tmp/x npm run dev -w @revamp-app/gui`: cache first, because bash applies `HOME=… XDG_CACHE_HOME=$HOME/…` left to right.
 - The integration tests use `bundles/official/dist/official.mjs` directly. Rebuild it after changing bundle sources.
 - The integration tests (`REVAMP_INTEGRATION=1`) reuse the real download cache `~/.cache/revamp/releases`: Hydra 4.1.6, Heroic 2.22.3, and Hydra 4.0.6 forced as the deliberate mismatch. Without the cache that is about 430 MB of downloads. With it, a run takes about a minute.
 - Passing tests install nothing for the owner: integration runs use temp homes. To refresh the real menu entries, quit the app, then `npm run revamp -- patch <app>`; `npm run revamp -- list` shows what is installed.
@@ -53,7 +53,7 @@ npm run release -w @revamp/bundle-official  # owner only: GitHub release bundle-
 
 All network, hashing, extraction and installing happen in the parent.
 
-**Patch model (`@revamp/sdk` declares, the engine does the work).**
+**Patch model (`@revamp-app/sdk` declares, the engine does the work).**
 - Bundles define apps (`defineApp`: release pins per version, `installDir`, `executable`, `desktopFile`, required patches), patches (`definePatch`) and fingerprints.
 - A fingerprint runs `strings` (indexOf prefilter) → by-example `pattern` (acorn AST matcher in `pattern.ts`: `$X` captures one node, `$$$` a list, object patterns match unordered subsets) → named `where` checks → `count`. Each failure throws `FingerprintError` naming the fingerprint and the step; the CLI prints these as the spec §5.6 report.
 - Matches (`match.ts`) edit by splices against the original text: `replace` / `insertBefore` / `insertAfter` / `remove`, with list commas added automatically, plus `find`, `findAll` and `resolve()` (identifier → top-level declaration).
@@ -71,7 +71,7 @@ All network, hashing, extraction and installing happen in the parent.
 
 **GUI (spec §9, M5).** The window is a Tauri v2 shell around `revamp serve`; it holds no engine logic.
 - `cli/serve.ts`: JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `createHandler` is tested in-process. Jobs stream `job.progress` from `patchApp`'s `progress` option; the sandboxed child reports each patch start as a `revamp-event {…}` stderr line. `sources.add` takes only a `sources.prepare` token from the same session. `patches.list` also returns `ask`, the new patches the window must ask about.
-- `packages/gui/src`: Vite + React 18 + TypeScript with its own tsconfig (the root project excludes it). Screen logic lives in `model.ts` and `rpc.ts`, which Node tests cover; the TSX screens are checked in the browser pane through `npm run dev -w @revamp/gui`. `platform.ts` picks the transport: the Tauri sidecar, or Vite's websocket bridged to `revamp serve` in dev.
+- `packages/gui/src`: Vite + React 18 + TypeScript with its own tsconfig (the root project excludes it). Screen logic lives in `model.ts` and `rpc.ts`, which Node tests cover; the TSX screens are checked in the browser pane through `npm run dev -w @revamp-app/gui`. `platform.ts` picks the transport: the Tauri sidecar, or Vite's websocket bridged to `revamp serve` in dev.
 - `packages/gui/src-tauri`: shell and notification plugins; the capability allows spawning only `revamp serve` from beside the window. The installed window's `revamp` is a link to `~/.local/share/revamp/bin/revamp`, so the window and the timer run one binary.
 - Check statuses: `update` (newer release, dry-run), `patches` (the source now pins another bundle than the install was patched with; `revamp update` re-patches), `skipped` (`<state>/skipped.json`). Storage (`engine/storage.ts`) removes only what it lists without a keep reason.
 
@@ -80,7 +80,7 @@ All network, hashing, extraction and installing happen in the parent.
 - A second esbuild output, the Steam bridge (`__REVAMP_HYDRA_STEAM_BRIDGE__`), runs in Hydra's main process.
 - The internal "Hydra extension loader" patch adds it as `out/renderer/assets/revamp-hydra.js`, loaded before Hydra's module script.
 - Registry patches (`src/hydra/registry.ts`) capture Hydra internals from the stock code that uses them. Each name is `resolve()`-checked as top-level, and they are assigned to `globalThis.__revamp.registry` just before the root render call.
-- Extension code reaches them only at call time through `@revamp/sdk/shims/*` and the extension's `app.ts`, because the extension loads before Hydra's module runs.
+- Extension code reaches them only at call time through `@revamp-app/sdk/shims/*` and the extension's `app.ts`, because the extension loads before Hydra's module runs.
 - A feature patch routes a stock component through `mount()`: the extension's replacement renders inside an error boundary that falls back to the stock component.
 - `bundles/official/test/extension.test.ts` builds the extension and renders it with real React 18.3.1 (Hydra's version) through `react-test-renderer`.
 

@@ -1,4 +1,4 @@
-import { definePatch, fingerprint, type Capture, type PatchContext } from "@revamp/sdk";
+import { definePatch, fingerprint, type Capture, type PatchContext } from "@revamp-app/sdk";
 
 /**
  * Hydra's root render call, the last statement of the renderer module. Registry entries are assigned just before

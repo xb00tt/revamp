@@ -1,6 +1,6 @@
 {
-  "name": "@revamp/sdk",
-  "version": "0.1.0",
+  "name": "@revamp-app/sdk",
+  "version": "0.3.0",
   "type": "module",
   "license": "GPL-3.0-only",
   "exports": { ".": "./src/index.ts", "./shims/*": "./src/shims/*.ts" }

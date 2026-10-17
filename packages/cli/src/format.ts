@@ -1,4 +1,4 @@
-import { patchCounts, type BundleSource, type InstalledApp, type PatchAppResult, type PatchListing, type PatchStatus, type SourceCandidate } from "@revamp/engine";
+import { patchCounts, type BundleSource, type InstalledApp, type PatchAppResult, type PatchListing, type PatchStatus, type SourceCandidate } from "@revamp-app/engine";
 
 const MARK: Record<PatchStatus, string> = { applied: "✓", failed: "✗", skipped: "–", incompatible: " ", disabled: " " };
 

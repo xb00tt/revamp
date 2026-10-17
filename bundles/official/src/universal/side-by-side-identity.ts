@@ -1,4 +1,4 @@
-import { definePatch, fingerprint, option } from "@revamp/sdk";
+import { definePatch, fingerprint, option } from "@revamp-app/sdk";
 
 export const protocolRegistration = fingerprint({
   name: "setAsDefaultProtocolClient call",

@@ -1,5 +1,5 @@
 {
-  "name": "@revamp/bundle-official",
+  "name": "@revamp-app/bundle-official",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,6 +8,6 @@
     "build": "node scripts/build.ts",
     "release": "node scripts/release.ts"
   },
-  "dependencies": { "@revamp/sdk": "*" },
-  "devDependencies": { "@revamp/engine": "*" }
+  "dependencies": { "@revamp-app/sdk": "*" },
+  "devDependencies": { "@revamp-app/engine": "*" }
 }

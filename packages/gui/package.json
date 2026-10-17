@@ -1,5 +1,5 @@
 {
-  "name": "@revamp/gui",
+  "name": "@revamp-app/gui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,8 +9,8 @@
     "build": "vite build",
     "tauri": "tauri",
     "icon": "node scripts/icon.ts",
-    "tauri:dev": "npm run build -w @revamp/cli && node scripts/sidecar.ts && tauri dev",
-    "tauri:build": "npm run build -w @revamp/cli && node scripts/sidecar.ts && tauri build --no-bundle"
+    "tauri:dev": "npm run build -w @revamp-app/cli && node scripts/sidecar.ts && tauri dev",
+    "tauri:build": "npm run build -w @revamp-app/cli && node scripts/sidecar.ts && tauri build --no-bundle"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.3",

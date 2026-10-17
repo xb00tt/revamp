@@ -1,4 +1,4 @@
-import { definePatch, fingerprint } from "@revamp/sdk";
+import { definePatch, fingerprint } from "@revamp-app/sdk";
 
 // scripts/build.ts replaces this name with the compiled bridge (src/hydra/steam-bridge/main.ts). Unit tests import
 // the source directly, where it is undefined and a placeholder stands in.

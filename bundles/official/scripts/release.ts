@@ -1,4 +1,4 @@
-// npm run release -w @revamp/bundle-official (the owner, by hand): builds the bundle, publishes it as GitHub release
+// npm run release -w @revamp-app/bundle-official (the owner, by hand): builds the bundle, publishes it as GitHub release
 // bundle-v<version>, and commits the root bundle.json that GitHub sources read (spec §7.1, §7.2). Push afterwards.
 import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, readFileSync } from "node:fs";
@@ -15,7 +15,7 @@ if (git("status", "--porcelain")) throw new Error("commit your changes first: th
 if (spawnSync("git", ["rev-parse", "@{u}"], { cwd: root, encoding: "utf8" }).stdout.trim() !== git("rev-parse", "HEAD")) {
   throw new Error("push this branch first: the release tags a commit GitHub must already have");
 }
-run("npm", ["run", "build", "-w", "@revamp/bundle-official"]);
+run("npm", ["run", "build", "-w", "@revamp-app/bundle-official"]);
 const meta = JSON.parse(readFileSync(here("dist/bundle.json"), "utf8")) as BundleJson;
 const tag = `bundle-v${meta.version}`;
 const repo = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/releases\//.exec(meta.download_url)![1];

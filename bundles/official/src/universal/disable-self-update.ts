@@ -1,4 +1,4 @@
-import { definePatch, fingerprint } from "@revamp/sdk";
+import { definePatch, fingerprint } from "@revamp-app/sdk";
 
 /** electron-updater's gate: when it returns false, checkForUpdates() resolves null and nothing is downloaded. */
 export const updaterActive = fingerprint({

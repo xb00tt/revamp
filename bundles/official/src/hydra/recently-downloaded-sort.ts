@@ -1,4 +1,4 @@
-import { definePatch, fingerprint } from "@revamp/sdk";
+import { definePatch, fingerprint } from "@revamp-app/sdk";
 import { hydra } from "../apps.ts";
 import { useBundledUi } from "./bundled-ui.ts";
 import { hydraLocales } from "./locales.ts";

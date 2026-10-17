@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { memoryStore, runJob, type Selection } from "@revamp/engine";
+import { memoryStore, runJob, type Selection } from "@revamp-app/engine";
 import { formatPatchResult } from "../../../packages/cli/src/format.ts";
 import { EXTENSION_FILE, HYDRA_EXTENSION } from "../src/hydra/extension-loader.ts";
 import { STEAM_BRIDGE } from "../src/hydra/steam-bridge.ts";

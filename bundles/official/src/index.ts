@@ -1,4 +1,4 @@
-import type { Manifest } from "@revamp/sdk";
+import type { Manifest } from "@revamp-app/sdk";
 import { heroic, hydra } from "./apps.ts";
 import { hideDealsLink } from "./heroic/hide-deals-link.ts";
 import { useBundledUi } from "./hydra/bundled-ui.ts";

@@ -17,7 +17,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build -w @revamp/bundle-official
+      - run: npm run build -w @revamp-app/bundle-official
       - id: matrix
         run: |
           node -e '
@@ -43,7 +43,7 @@ jobs:
           node-version: 26
           cache: npm
       - run: npm ci
-      - run: npm run build -w @revamp/bundle-official
+      - run: npm run build -w @revamp-app/bundle-official
       - uses: actions/cache@v4
         with:
           path: ~/.cache/revamp/releases/${{ matrix.app }}/${{ matrix.version }}

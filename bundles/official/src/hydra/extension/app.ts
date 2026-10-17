@@ -1,9 +1,9 @@
-// Hydra internals the extension uses, read from the registry at call time (see @revamp/sdk/shims/registry).
+// Hydra internals the extension uses, read from the registry at call time (see @revamp-app/sdk/shims/registry).
 // The registry patches in ../registry.ts fill these names; the ported fork code imports them from here
 // instead of from @renderer/*, react-i18next, react-router-dom and the UI libraries Hydra bundles.
 import type { ReactNode } from "react";
-import { jsx } from "@revamp/sdk/shims/jsx-runtime";
-import { need, revamp } from "@revamp/sdk/shims/registry";
+import { jsx } from "@revamp-app/sdk/shims/jsx-runtime";
+import { need, revamp } from "@revamp-app/sdk/shims/registry";
 
 // Types: the parts of Hydra's types the ported code relies on.
 export type GameShop = "steam" | "launchbox" | "custom";

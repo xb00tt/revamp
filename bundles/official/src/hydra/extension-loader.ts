@@ -1,4 +1,4 @@
-import { definePatch } from "@revamp/sdk";
+import { definePatch } from "@revamp-app/sdk";
 import { useBundledUi } from "./bundled-ui.ts";
 
 // scripts/build.ts replaces this name with the compiled extension (src/hydra/extension). Unit tests import the

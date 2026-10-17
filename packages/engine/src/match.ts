@@ -1,4 +1,4 @@
-import type { Capture, Match } from "@revamp/sdk";
+import type { Capture, Match } from "@revamp-app/sdk";
 import type { EditBuffer } from "./edits.ts";
 import { compilePattern, findMatches, parentOf, type Captures, type Node, type ParentLink } from "./pattern.ts";
 import type { Sources } from "./sources.ts";

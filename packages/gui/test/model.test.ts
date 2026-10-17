@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { AppCheck } from "@revamp/engine";
+import type { AppCheck } from "@revamp-app/engine";
 import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, forVersion, answerNewPatches, initialToggles, jobEvent, newPatchesNote, optionFlags, type Listing, type PatchRow, patchName, plain, progressLabel, reclaimable, releaseNote, selectionFlags, startJob } from "../src/model.ts";
 
 const app = (appId: string, current: string | null): AppRow => ({ appId, name: appId, current, versions: [] });

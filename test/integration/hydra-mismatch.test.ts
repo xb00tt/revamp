@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { patchApp, revampPaths } from "@revamp/engine";
+import { patchApp, revampPaths } from "@revamp-app/engine";
 import { formatPatchResult } from "../../packages/cli/src/format.ts";
 
 const BUNDLE = fileURLToPath(new URL("../../bundles/official/dist/official.mjs", import.meta.url));

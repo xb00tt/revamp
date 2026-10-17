@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -18,7 +19,7 @@ import {
   uninstall,
   updateApp,
   type Paths,
-} from "@revamp/engine";
+} from "@revamp-app/engine";
 import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandidate, formatSources, printable } from "./format.ts";
 import { bundleFor } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";

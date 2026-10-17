@@ -1,4 +1,4 @@
-import { definePatch } from "@revamp/sdk";
+import { definePatch } from "@revamp-app/sdk";
 import { hydra } from "../apps.ts";
 import { useBundledUi } from "./bundled-ui.ts";
 import { hydraExtensionLoader } from "./extension-loader.ts";

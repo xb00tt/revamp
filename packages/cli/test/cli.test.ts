@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PatchAppResult, PatchListing } from "@revamp/engine";
+import type { PatchAppResult, PatchListing } from "@revamp-app/engine";
 import { writeDemoBundle } from "../../engine/test/helpers/demo.ts";
 import { formatInstalls, formatPatchList, formatPatchResult, printable } from "../src/format.ts";
 

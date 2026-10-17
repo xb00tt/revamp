@@ -1,10 +1,10 @@
-// npm run build -w @revamp/bundle-official: the extensions first, then the bundle with each one embedded as a string,
+// npm run build -w @revamp-app/bundle-official: the extensions first, then the bundle with each one embedded as a string,
 // then patches.json and bundle.json (spec §7.1).
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { describe } from "@revamp/engine";
+import { describe } from "@revamp-app/engine";
 import { buildExtension, buildSteamBridge } from "./extension.ts";
 import { bundleJson, changelogFor } from "./metadata.ts";
 

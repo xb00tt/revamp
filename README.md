@@ -20,7 +20,7 @@ npm run typecheck
 Patch Hydra or Heroic with the bundle in this repo:
 
 ```bash
-npm run build -w @revamp/bundle-official
+npm run build -w @revamp-app/bundle-official
 npm run revamp -- patches hydra
 npm run revamp -- patch hydra
 ```

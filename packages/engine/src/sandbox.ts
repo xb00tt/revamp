@@ -32,7 +32,7 @@ function childArgs(access: SandboxAccess, entry: string | undefined): string[] {
   }
   // Dev mode runs this repo's TypeScript in the child, so it may read the repo (sources and node_modules).
   const repo = fileURLToPath(new URL("../../../", import.meta.url));
-  const runner = entry ?? fileURLToPath(new URL("./runner.ts", import.meta.url));
+  const runner = entry ?? fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./runner.ts" : "./runner.js", import.meta.url));
   return ["--permission", ...[repo, ...access.read].map((p) => `--allow-fs-read=${p}`), ...writes, runner];
 }
 

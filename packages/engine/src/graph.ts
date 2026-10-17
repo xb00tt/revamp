@@ -1,4 +1,4 @@
-import type { AppDef, Patch } from "@revamp/sdk";
+import type { AppDef, Patch } from "@revamp-app/sdk";
 import type { Selection } from "./config.ts";
 
 export type PatchStatus = "applied" | "failed" | "skipped" | "incompatible" | "disabled";

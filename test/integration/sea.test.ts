@@ -5,7 +5,7 @@ import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { revampPaths } from "@revamp/engine";
+import { revampPaths } from "@revamp-app/engine";
 
 const BUNDLE = fileURLToPath(new URL("../../bundles/official/dist/official.mjs", import.meta.url));
 const SEA = fileURLToPath(new URL("../../packages/cli/dist/revamp", import.meta.url));
@@ -15,7 +15,7 @@ test(
   "the SEA runs the CLI and its sandbox outside the repo",
   { skip: enabled ? false : "set REVAMP_INTEGRATION=1 (npm run test:integration)", timeout: 15 * 60_000 },
   async (t) => {
-    execFileSync("npm", ["run", "build", "-w", "@revamp/cli"], { stdio: "ignore" });
+    execFileSync("npm", ["run", "build", "-w", "@revamp-app/cli"], { stdio: "ignore" });
     // A space in every path checks the --node-options quoting; the cwd is outside the repo, like the timer's.
     const dir = mkdtempSync(join(tmpdir(), "revamp sea "));
     t.after(() => rmSync(dir, { recursive: true, force: true }));

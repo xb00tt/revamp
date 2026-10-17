@@ -1,4 +1,4 @@
-import { defineApp } from "@revamp/sdk";
+import { defineApp } from "@revamp-app/sdk";
 import { disableSelfUpdate } from "./universal/disable-self-update.ts";
 import { sideBySideIdentity } from "./universal/side-by-side-identity.ts";
 

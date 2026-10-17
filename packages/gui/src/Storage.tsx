@@ -1,4 +1,4 @@
-import type { StorageItem } from "@revamp/engine";
+import type { StorageItem } from "@revamp-app/engine";
 import { useEffect, useState } from "react";
 import { formatBytes, reclaimable } from "./model.ts";
 import type { Rpc } from "./rpc.ts";

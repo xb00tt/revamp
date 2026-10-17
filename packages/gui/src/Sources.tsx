@@ -1,4 +1,4 @@
-import type { BundleSource } from "@revamp/engine";
+import type { BundleSource } from "@revamp-app/engine";
 import { useEffect, useState } from "react";
 import { plain } from "./model.ts";
 import type { Rpc } from "./rpc.ts";

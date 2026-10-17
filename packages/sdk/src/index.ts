@@ -1,4 +1,4 @@
-// @revamp/sdk: what bundle authors import. Declarations and types only; the engine does the work.
+// @revamp-app/sdk: what bundle authors import. Declarations and types only; the engine does the work.
 
 export interface AstNode {
   type: string;
