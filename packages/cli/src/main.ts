@@ -65,9 +65,10 @@ async function sources(paths: Paths, sub: string | undefined, location: string |
   };
   switch (sub) {
     case "add": {
-      // The default goes in first, so a first `sources add` of another repo never takes its place.
-      await seedDefaultSource(paths, printError);
-      const candidate = await prepareSource(paths, needLocation());
+      const loc = needLocation();
+      // The default goes in first, so a first `sources add` of another repo never takes its place; adding the default itself is the seed.
+      if (loc !== DEFAULT_SOURCE) await seedDefaultSource(paths, printError);
+      const candidate = await prepareSource(paths, loc);
       print(formatSourceCandidate(candidate));
       if (!yes && !(await confirm("Trust this bundle and add the source?"))) return 1;
       addSource(paths, candidate.source);

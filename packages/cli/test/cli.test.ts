@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -157,6 +157,14 @@ test("revamp sources adds a file source once confirmed, patches use it, and remo
   assert.equal(cli(["sources", "remove", bundle], home).stdout, `Removed ${bundle} ("Demo bundle" 1.0.0).\n`);
   assert.equal(cli(["sources", "list"], home).stdout, "No bundle sources. Add one: revamp sources add xb00tt/revamp-patches\n");
   assert.match(cli(["sources", "nope"], home).stderr, /^Unknown sources command "nope"\./);
+});
+
+test("sources add with no location is a usage error before any seeding", () => {
+  const home = mkdtempSync(join(tmpdir(), "revamp-cli-bare-")); // no sources.json: a seed here would reach GitHub
+  const r = cli(["sources", "add"], home);
+  assert.equal(r.status, 1);
+  assert.equal(r.stderr, 'revamp: "sources add" needs a source, e.g. revamp sources add xb00tt/revamp-patches\n');
+  assert.equal(existsSync(join(home, ".config/revamp/sources.json")), false);
 });
 
 test("bundle text can't move the cursor or clear the screen before the trust prompt", () => {
