@@ -30,7 +30,10 @@ function childArgs(access: SandboxAccess, entry: string | undefined): string[] {
     const flags = ["--permission", ...access.read.map((p) => `--allow-fs-read=${p}`), ...writes];
     return [`--node-options=${nodeOptions(flags)}`, "--sandbox-runner"];
   }
-  // Dev mode runs this repo's TypeScript in the child, so it may read the repo (sources and node_modules).
+  // Outside the SEA the child runs this engine from where it lives, so it may read the folder three levels above this
+  // file: the repo in dev (sources and node_modules), or from an npm install the consumer's node_modules, which holds
+  // @revamp-app/engine, acorn and xz-decompress (split design §4.2). That is the boundary: the bundle still sees
+  // nothing outside it and the job's paths.
   const repo = fileURLToPath(new URL("../../../", import.meta.url));
   const runner = entry ?? fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./runner.ts" : "./runner.js", import.meta.url));
   return ["--permission", ...[repo, ...access.read].map((p) => `--allow-fs-read=${p}`), ...writes, runner];
@@ -38,7 +41,8 @@ function childArgs(access: SandboxAccess, entry: string | undefined): string[] {
 
 /**
  * Runs `entry` (default: the bundle runner; a SEA always runs itself as the runner) in a child Node process under
- * the permission model. Reads are limited to access.read (plus the repo in dev mode) and writes to access.write.
+ * the permission model. Reads are limited to access.read (plus, outside the SEA, the folder that holds this engine:
+ * the repo in dev, the consumer's node_modules from an npm install) and writes to access.write.
  * There is no network, no child processes, workers, addons or WASI, and the environment holds only PATH.
  * The job goes in on stdin; the child's stdout must be JSON.
  */

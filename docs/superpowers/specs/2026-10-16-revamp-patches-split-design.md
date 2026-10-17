@@ -134,9 +134,11 @@ commands.
   sources are always added by hand, as today.
 - **Offline first run** (my call): if adding the default fails, nothing is saved, the command reports why (the same
   message `sources add` would give), and the next run tries again.
-- Only things that read sources trigger it: `patch`/`patches` without `--bundle`, `sources list`, `check`, `update`, and
-  the window's app list and Sources screen (`revamp serve`). Commands like `--help`, `list`, `rollback` and
-  `uninstall` never touch the network for it.
+- Only things that read sources trigger it: `patch`/`patches` without `--bundle`, `sources list`, `sources add`
+  (adding the default itself by hand on a fresh home is the seed, with no second fetch), `check`, `update`, and
+  the window's app list and Sources screen (`revamp serve`); the window retries a failed seed on its next sources
+  request. Commands like `--help`, `list`, `rollback` and `uninstall` never touch the network for it.
+  *(changed 2026-10-17 during implementation: `sources add` added to the list, and the window's retry.)*
 - My calls on how it's built:
   - `loadSources` stays a plain read of the file with no network, so storage cleanup and every other existing reader
     never seed.
