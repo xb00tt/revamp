@@ -23,7 +23,8 @@ export async function fileSha256(path: string): Promise<string> {
 
 /**
  * Makes `dest` hold exactly the bytes with the expected SHA-256.
- * Bytes are written to `dest.part` and renamed only after the hash matches, so `dest` is never unverified.
+ * Bytes are written to `dest.<pid>.part` (per process: the timer and the window may both fetch the default bundle at
+ * once) and renamed only after the hash matches, so `dest` is never unverified.
  */
 export async function downloadVerified(o: DownloadOptions): Promise<"cached" | "downloaded" | "replaced"> {
   if (!/^[0-9a-f]{64}$/.test(o.sha256)) throw new DownloadError(`invalid expected sha256 "${o.sha256}"`);
@@ -34,7 +35,7 @@ export async function downloadVerified(o: DownloadOptions): Promise<"cached" | "
     replaced = true;
   }
   mkdirSync(dirname(o.dest), { recursive: true });
-  const part = `${o.dest}.part`;
+  const part = `${o.dest}.${process.pid}.part`;
   try {
     const res = await (o.fetch ?? fetch)(o.url, { redirect: "follow" });
     if (!res.ok || !res.body) throw new DownloadError(`GET ${o.url} failed: HTTP ${res.status}`);

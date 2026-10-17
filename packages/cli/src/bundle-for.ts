@@ -9,12 +9,17 @@ export async function bundleFor(paths: Paths, appId: string, flag: string | unde
   return choice.bundlePath;
 }
 
-/** Adds the default source on the first run that needs the sources, and says so; a failure is a warning, not an error. */
-export async function seedDefaultSource(paths: Paths, warn: (line: string) => void, o: SourceFetchOptions = {}): Promise<void> {
+/**
+ * Adds the default source on the first run that needs the sources, and says so; a failure is a warning, not an error.
+ * Returns false only when it failed (sources.json still doesn't exist), so a long-lived caller knows to try again.
+ */
+export async function seedDefaultSource(paths: Paths, warn: (line: string) => void, o: SourceFetchOptions = {}): Promise<boolean> {
   try {
     const source = await addDefaultSource(paths, o);
     if (source) warn(`Added the default source ${DEFAULT_SOURCE}: "${source.name}" ${source.version} (sha256 ${source.sha256})`);
+    return true;
   } catch (e) {
     warn(`Warning: couldn't add the default source ${DEFAULT_SOURCE}: ${e instanceof Error ? e.message : String(e)}`);
+    return false;
   }
 }

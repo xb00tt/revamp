@@ -112,15 +112,16 @@ test("protocol errors follow JSON-RPC 2.0, and notifications get no reply", asyn
   assert.equal(await raw('{"jsonrpc":"2.0","method":"sources.list"}'), undefined);
 });
 
-test("the first request that reads the sources adds the default source, once it can be fetched", async (t) => {
+/** A fresh home and a fake raw.githubusercontent.com that serves xb00tt/revamp-patches' bundle.json for the demo bundle while `state.online`. */
+async function defaultSourceSetup(t: { after: (fn: () => void) => void }) {
   const root = mkdtempSync(join(tmpdir(), "revamp-serve-seed-"));
   const bundle = join(root, "demo.mjs");
   writeDemoBundle(bundle, { sha256: "a".repeat(64) });
   const bytes = readFileSync(bundle);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  let online = false;
+  const state = { online: true };
   const server = createServer((req, res) => {
-    if (req.url === "/raw/xb00tt/revamp-patches/HEAD/bundle.json" && online) res.end(JSON.stringify({ name: "Demo bundle", version: "1.0.0", sha256, download_url: `${base}/dl/demo.mjs` }));
+    if (req.url === "/raw/xb00tt/revamp-patches/HEAD/bundle.json" && state.online) res.end(JSON.stringify({ name: "Demo bundle", version: "1.0.0", sha256, download_url: `${base}/dl/demo.mjs` }));
     else if (req.url === "/dl/demo.mjs") res.end(bytes);
     else {
       res.statusCode = 500;
@@ -131,20 +132,38 @@ test("the first request that reads the sources adds the default source, once it 
   t.after(() => server.close());
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const paths = revampPaths({ HOME: join(root, "home") });
-  const handler = (logs: string[]) => createHandler({ paths, rawBaseUrl: `${base}/raw`, apiBaseUrl: `${base}/api`, log: (l) => logs.push(l) });
-  const list = async (handle: ReturnType<typeof createHandler>) => (await handle('{"jsonrpc":"2.0","id":1,"method":"sources.list"}', () => {})) as { result: Array<{ location: string }> };
-
-  const offline: string[] = [];
-  assert.deepEqual((await list(handler(offline))).result, []);
-  assert.match(offline[0], /^Warning: couldn't add the default source xb00tt\/revamp-patches: couldn't fetch bundle\.json from xb00tt\/revamp-patches/);
-  assert.equal(existsSync(join(paths.config, "sources.json")), false, "an offline first run saves nothing");
-
-  online = true;
   const logs: string[] = [];
-  const handle = handler(logs);
-  const [a, b] = await Promise.all([list(handle), list(handle)]); // both wait for the one seeding
-  assert.deepEqual([a.result.map((s) => s.location), b.result.map((s) => s.location)], [["xb00tt/revamp-patches"], ["xb00tt/revamp-patches"]]);
-  assert.deepEqual(logs, [`Added the default source xb00tt/revamp-patches: "Demo bundle" 1.0.0 (sha256 ${sha256})`]);
+  const handle = createHandler({ paths, rawBaseUrl: `${base}/raw`, apiBaseUrl: `${base}/api`, log: (l) => logs.push(l) });
+  let next = 1;
+  const call = async (method: string, params?: unknown) => (await handle(JSON.stringify({ jsonrpc: "2.0", id: next++, method, params }), () => {})) as { result?: any; error?: { code: number; message: string } };
+  const locations = async () => ((await call("sources.list")).result as Array<{ location: string }>).map((s) => s.location);
+  return { state, sha256, paths, logs, call, locations, added: `Added the default source xb00tt/revamp-patches: "Demo bundle" 1.0.0 (sha256 ${sha256})` };
+}
+
+test("the first request that reads the sources adds the default source; after a failure the next one tries again", async (t) => {
+  const s = await defaultSourceSetup(t);
+  s.state.online = false;
+  assert.deepEqual(await s.locations(), []);
+  assert.match(s.logs[0], /^Warning: couldn't add the default source xb00tt\/revamp-patches: couldn't fetch bundle\.json from xb00tt\/revamp-patches/);
+  assert.equal(existsSync(join(s.paths.config, "sources.json")), false, "an offline first run saves nothing");
+
+  s.state.online = true;
+  const [a, b] = await Promise.all([s.locations(), s.locations()]); // the same session retries, and both wait for the one seeding
+  assert.deepEqual([a, b], [["xb00tt/revamp-patches"], ["xb00tt/revamp-patches"]]);
+  assert.deepEqual(s.logs.slice(1), [s.added]);
+  assert.deepEqual(await s.locations(), ["xb00tt/revamp-patches"]);
+  assert.equal(s.logs.length, 2, "once seeded, nothing seeds again");
+});
+
+test("adding the default source by hand on a fresh home is the seed: one fetch, one source, no seeding line", async (t) => {
+  const s = await defaultSourceSetup(t);
+  const preview = (await s.call("sources.prepare", { location: "xb00tt/revamp-patches" })).result;
+  assert.equal(preview.source.location, "xb00tt/revamp-patches");
+  const added = await s.call("sources.add", { token: preview.token });
+  assert.ifError(added.error);
+  assert.equal(added.result.location, "xb00tt/revamp-patches");
+  assert.deepEqual(await s.locations(), ["xb00tt/revamp-patches"]);
+  assert.deepEqual(s.logs, []);
 });
 
 test("revamp serve speaks over stdin and stdout and exits when stdin closes", async () => {

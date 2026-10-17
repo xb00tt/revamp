@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import {
   addSource,
   checkUpdates,
+  DEFAULT_SOURCE,
   describe,
   listInstalls,
   listPatches,
@@ -64,9 +65,13 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
   const descriptions = new Map<string, Promise<BundleDescription>>(); // bundles are content-addressed, so a path's description never changes
   const describeOnce = (path: string) => descriptions.get(path) ?? descriptions.set(path, describe(path)).get(path)!;
   const candidates = new Map<string, SourceCandidate>();
-  let seeding: Promise<void> | undefined;
-  /** The default source goes in on the first request that reads the sources; one try per session. */
-  const seeded = () => (seeding ??= seedDefaultSource(o.paths, o.log, o));
+  let seeding: Promise<boolean> | undefined;
+  /** The default source goes in on the first request that reads the sources; after a failure (offline) the next one tries again. */
+  const seeded = () =>
+    (seeding ??= seedDefaultSource(o.paths, o.log, o).then((ok) => {
+      if (!ok) seeding = undefined;
+      return ok;
+    }));
   const lastCheck = () => loadLastCheck(o.paths);
   /** A job's log lines and progress go to the window as notifications tagged with its request id; logs also to stderr. */
   const report = (id: unknown, notify: Notify) => ({
@@ -152,7 +157,7 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
       const candidate = candidates.get(token);
       if (!candidate) throw new RpcError(INVALID_PARAMS, "that source preview is gone; fetch the source again");
       candidates.delete(token);
-      await seeded();
+      if (candidate.source.location !== DEFAULT_SOURCE) await seeded(); // adding the default by hand is the seed (as in main.ts)
       addSource(o.paths, candidate.source);
       return candidate.source;
     },
