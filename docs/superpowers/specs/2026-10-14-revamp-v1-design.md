@@ -7,6 +7,7 @@
   - `docs/research/morphe.md`.
   - The brainstorm on 2026-10-14 (decision log in §2).
   - Measurements and probes on the owner's machine (§3).
+- **Amended 2026-10-17** by [2026-10-16-revamp-patches-split-design.md](2026-10-16-revamp-patches-split-design.md): the official patches moved to `xb00tt/revamp-patches`, and `@revamp-app/{sdk,engine,cli}` publish to npm. Sections marked `(changed 2026-10-17, …)` say what holds now; the rest is history.
 
 Revamp is Morphe for Linux Electron apps. It does four things:
 - downloads an official release
@@ -45,7 +46,7 @@ The settled decisions from the kickoff (#1–#11) still apply. These were decide
 | Q4 | Engine ↔ GUI IPC | **stdin/stdout pipe**, newline-delimited JSON-RPC 2.0 | No port, no auth token, no browser CSRF surface, and the lifetime is tied to the window. Tauri supports this for sidecars natively. |
 | Q5 | State layout | **XDG split** with a `current` symlink and a per-install receipt | Standard locations. Backups skip the cache. Rollback means repointing one link. |
 | Q6 | Extension ↔ app contract | **A `globalThis.__revamp` registry for shared things.** Extensions compile their own copies of pure libraries. | A second copy of React, Redux, i18n or the router silently breaks hooks and context. Pure libraries are safe to duplicate and add no fingerprints. |
-| Q7 | Repo layout | **npm workspaces:** `packages/{sdk,engine,cli,gui}` plus `bundles/official`. One `revamp` binary serves both CLI and GUI. | Keeps the SDK separable for community bundles. Every engine fix lands in both front ends. |
+| Q7 | Repo layout | **npm workspaces:** `packages/{sdk,engine,cli,gui}`. The official patches live in `xb00tt/revamp-patches`, on `@revamp-app/{sdk,engine,cli}` from npm at exact versions (changed 2026-10-17, see 2026-10-16-revamp-patches-split-design.md). One `revamp` binary serves both CLI and GUI. | Keeps the SDK separable for community bundles: a bundle repo installs the three npm packages. Every engine fix lands in both front ends. |
 | Q8 | Node version | **Node 26** (Active LTS from 2026-10-28, EOL 2029-04-30) as both runtime and dev runtime | Node 26 `--permission` blocks the network (tested: `fetch` → `ERR_ACCESS_DENIED`). Node 24 has no `--allow-net`. Node 26 also has one-step `--build-sea` and an ESM SEA entry. |
 
 ## 3. Verified facts (2026-10-14)
@@ -136,30 +137,36 @@ The integration test re-checks the Hydra hash against the downloaded bytes.
 ## 4. Architecture
 
 ### 4.1 Repo layout
+*(changed 2026-10-17, see 2026-10-16-revamp-patches-split-design.md)*
 ```
 revamp/
   package.json            npm workspaces root; engines.node ">=26"
   packages/
-    sdk/                  @revamp/sdk: declarations and types for bundle authors (no engine code)
-    engine/               @revamp/engine: download, verify, unpack, asar, fingerprints, edits,
+    sdk/                  @revamp-app/sdk: declarations and types for bundle authors (no engine code)
+    engine/               @revamp-app/engine: download, verify, unpack, asar, fingerprints, edits,
                           patch graph, sandbox, install, state
-    cli/                  @revamp/cli: `revamp` command and `revamp serve`; builds the SEA binary
-    gui/                  Tauri v2 shell (Rust boilerplate) + Vite/React/TS web UI   [M5]
-  bundles/
-    official/             Hydra + Heroic app definitions, patches, extensions; builds
-                          dist/official.mjs + bundle.json + patches.json
+    cli/                  @revamp-app/cli: `revamp` command and `revamp serve`; builds the SEA binary
+    gui/                  Tauri v2 shell (Rust boilerplate) + Vite/React/TS web UI   [M5]; never published
+  scripts/                publish-packages.ts: compiles sdk, engine and cli and publishes them to npm
+  test/integration/       the SEA and the packed packages, run on the engine tests' Demo app
   docs/
 ```
+The official bundle (the Hydra and Heroic app definitions, patches, extensions, and its build and release) is the
+separate repo `xb00tt/revamp-patches`, on `@revamp-app/{sdk,engine,cli}` from npm at exact versions. Revamp adds it
+as the default source (§7.2).
+
 **Tooling:**
 - `node --test` runs `.ts` natively.
-- `tsc --noEmit` for types.
-- esbuild for the CLI bundle (SEA input), the bundle file and extensions.
+- `tsc --noEmit` for types. `tsc -p tsconfig.publish.json` compiles the published packages (JavaScript plus `.d.ts`),
+  only inside `npm run publish:packages`; nothing compiled is committed.
+- esbuild for the CLI bundle (SEA input). The bundle file and extensions are built in revamp-patches.
 
 **Runtime dependencies:**
 - engine: `acorn`, plus one xz decompressor (pure JS or WASM, no native addon, no external process). The M1 plan picks the package by measuring it on the real `.deb`.
 - `@electron/asar` is a dev dependency, used only as a test oracle.
 
 ### 4.2 Units
+*(changed 2026-10-17, see 2026-10-16-revamp-patches-split-design.md)*
 
 | Unit | Does | Depends on |
 |---|---|---|
@@ -176,7 +183,6 @@ revamp/
 | `engine/install` | Staging, receipt, `current` symlink, desktop entry, retention, warnings | state |
 | `engine/api` | Facade used by CLI and `serve`: `patchApp`, `listPatches`, `listInstalled`, `rollback`, `check`, `update`, sources | all |
 | `cli` | `node:util.parseArgs` commands → `engine/api`; `serve` = JSON-RPC over stdio | engine |
-| `bundles/official` | App definitions, patches, extension sources, build script | sdk (types), esbuild |
 
 ### 4.3 Patch job flow (`revamp patch hydra`)
 1. **Describe and resolve.**
@@ -486,16 +492,19 @@ Hydra 4.1.7 (untested): 4/5 patches apply
 ## 7. Bundles and distribution
 
 ### 7.1 Bundle file
-- **Output:** `bundles/official/dist/official.mjs`, a single self-contained ESM file. It contains the patches, inlined SDK helpers, extension code as strings and icons as base64.
+*(changed 2026-10-17, see 2026-10-16-revamp-patches-split-design.md)*
+- **Output:** `dist/official.mjs`, built in `xb00tt/revamp-patches` (`npm run build` there), a single self-contained ESM file. It contains the patches, inlined SDK helpers, extension code as strings and icons as base64.
 - **Constraints:** no imports, and no top-level `await`.
-- **Build** (`npm run build -w bundles/official`):
+- **Build** (in revamp-patches, with `@revamp-app/engine` from npm):
   1. esbuild the extensions.
   2. esbuild the bundle entry.
   3. Run the engine's sandboxed `describe` (§4.4) on the built bundle and write the result as `patches.json`: manifest, apps, and every named patch with its description, compatible apps and versions, options and default/required flags.
   4. Write `bundle.json`.
-- **`bundle.json`:** `{ name, version, minEngine, created_at, changelog, download_url, sha256 }`.
+- **`bundle.json`:** `{ name, version, minEngine, created_at, changelog, download_url, sha256 }`. `minEngine` is an `@revamp-app/engine` version.
+- **Release:** revamp-patches' `npm run release` puts `official.mjs` and `patches.json` on its GitHub release `bundle-v<version>` and commits `bundle.json` at its root, which is what GitHub sources read.
 
 ### 7.2 Sources [M4]
+*(changed 2026-10-17, see 2026-10-16-revamp-patches-split-design.md)*
 - **Adding:** `revamp sources add <owner/repo | https-url | file>`.
   - GitHub: fetch `bundle.json` from the default branch (raw.githubusercontent.com, falling back to the API), download `download_url`, and verify `sha256`.
   - URL: a `bundle.json` URL.
@@ -503,7 +512,11 @@ Hydra 4.1.7 (untested): 4/5 patches apply
 - **Confirmation:** the CLI shows the manifest and hash; the user confirms, and the hash is pinned in `sources.json`.
 - **Updates:** a source's new `bundle.json` version is downloaded, verified against its own `sha256`, and the pin moves. The source itself is the trust anchor (trust on first use). Url and file sources pin an exact hash.
 - **Conflicts:** two enabled sources defining the same app id is a warning, and the first source wins.
-- **Before M4:** the CLI takes `--bundle <file>`, defaulting to `bundles/official/dist/official.mjs` when run from the repo.
+- **Default source:** Revamp comes with `xb00tt/revamp-patches` (`DEFAULT_SOURCE`). When a command needs the sources and `~/.config/revamp/sources.json` doesn't exist, it adds the default through the same fetch, verify, cache, sandboxed describe and engine-version check as `sources add`, without a confirmation prompt (the default is the one repo the Revamp release itself names), saves `sources.json` and prints one line with the bundle's name, version and SHA-256.
+  - Seeded once: once `sources.json` exists, even with an empty list, the default is never added again; the user adds it back like any source (`revamp sources add xb00tt/revamp-patches`, which on a fresh home is itself the seed).
+  - Offline: nothing is saved, the command warns why, and the next run tries again.
+  - Only things that read the sources trigger it: `patch`/`patches` without `--bundle`, `sources list`, `sources add`, `check`, `update`, and the window's app list and Sources screen (`revamp serve`). `--help`, `list`, `rollback` and `uninstall` never touch the network.
+- **`--bundle <file>`** bypasses the sources. Without it and without a source that has the app, the CLI fails with `no bundle source has "<app>"; add one, e.g. revamp sources add xb00tt/revamp-patches`: there is no repo-build fallback.
 
 ### 7.3 Check and update [M4]
 - **`revamp check`** runs daily from `revamp-check.timer` (`OnCalendar=daily`, `Persistent=true`, `RandomizedDelaySec=1h`). For each installed app:
@@ -517,7 +530,9 @@ Hydra 4.1.7 (untested): 4/5 patches apply
 - **`revamp timer enable|disable`** writes the units and runs `systemctl --user enable --now` (or the disable equivalent).
 
 ### 7.4 CI [M4]
-GitHub Actions on every push:
+*(changed 2026-10-17, see 2026-10-16-revamp-patches-split-design.md)*
+Revamp's GitHub Actions (`.github/workflows/ci.yml`) run the typecheck and the unit tests on every push. The dry-run
+matrix runs in revamp-patches' CI, on every push there:
 1. Build.
 2. Run the unit tests.
 3. Restore `~/.cache/revamp/releases` from the Actions cache (key: app and version).
@@ -559,6 +574,7 @@ Flags passed to `patch` are saved into `~/.config/revamp/apps/<app>.json`, so `u
 ---
 
 ## 10. Official bundle contents
+*(changed 2026-10-17, see 2026-10-16-revamp-patches-split-design.md: the official bundle now lives in `xb00tt/revamp-patches`, with its own CHANGELOG and `patches.json`; the table below is the list as of the split.)*
 
 | Patch | Kind | Apps | Milestone | Mechanism |
 |---|---|---|---|---|
@@ -591,6 +607,7 @@ The Heroic app definition (`installDir`, `executable`, `desktopFile`) is filled 
   - an untested version installed with `--force`
 
 ## 12. Testing strategy
+*(changed 2026-10-17, see 2026-10-16-revamp-patches-split-design.md)*
 - **TDD** for engine logic. Unit tests run under `node --test`, TS natively, with no network.
 - **`deb`:**
   - committed tiny fixtures (built once with `dpkg-deb`) for gz, xz and zst
@@ -601,12 +618,9 @@ The Heroic app definition (`installDir`, `executable`, `desktopFile`) is filled 
 - **`graph`:** ordering, dependency failure propagation, required-failure abort, finalize reverse order, option validation, `--force`.
 - **`sandbox`:** the child cannot read outside staging, cannot spawn, and cannot `fetch`. The bundle loads via require(esm).
 - **`install`:** atomic `current` swap, retention keeps two, a rename collision on re-patching the same version, and the desktop entry contents (written into a temp XDG root).
-- **Integration** (`npm run test:integration`, opt-in):
-  - Downloads the real Hydra 4.1.6 `.deb` once into `~/.cache/revamp/releases` (verifying the pinned hash).
-  - Runs the M1 job into a temp XDG root.
-  - Asserts: every selected patch applied; the asar reopens with `@electron/asar`; changed files parse and contain the inserted code; unchanged files are byte-identical; the receipt and desktop entry are correct.
-  - Skips with a clear message when offline and uncached.
-  - Later milestones extend it (Heroic, a mismatched version).
+- **Integration** (`npm run test:integration`, opt-in), split per repo:
+  - In Revamp, on the engine tests' Demo app, with no network: `test/integration/sea.test.ts` runs the SEA binary outside the repo (the Demo `.deb` waits in a temp cache with the hash the Demo bundle pins), and `test/integration/packages.test.ts` packs `@revamp-app/{sdk,engine,cli}`, installs them in a temp project and runs the published engine's sandbox and the `revamp` bin from `node_modules`.
+  - In revamp-patches, on the real releases (Hydra 4.1.6, Heroic 2.22.3, and Hydra 4.0.6 forced as the mismatch), downloaded once into `~/.cache/revamp/releases` with the pinned hash and patched into a temp XDG root. Asserts: every selected patch applied; the asar reopens with `@electron/asar`; changed files parse and contain the inserted code; unchanged files are byte-identical; the receipt and desktop entry are correct. Skips with a clear message when offline and uncached.
 - **Manual (M1):** launch Revamped Hydra, see the sort work, and confirm `/opt/Hydra` is unchanged (`dpkg --verify hydralauncher`).
 
 ## 13. Milestones and acceptance
