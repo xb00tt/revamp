@@ -16,6 +16,9 @@ import {
 } from "../src/install.ts";
 import { revampPaths, type Paths } from "../src/paths.ts";
 
+// Nothing here reaches the sandbox checks today; one that does, on a restricted machine, would see a data dir under the
+// system's /tmp refused. The seam makes them stop there (as in doctor.test.ts).
+process.env.REVAMP_TRUSTED_ROOT = tmpdir();
 const tmp = () => mkdtempSync(join(tmpdir(), "revamp-inst-"));
 const newPaths = (home = join(tmp(), "home")) => revampPaths({ HOME: home });
 const receipt = (version: string, installedAt: string): Receipt => ({
