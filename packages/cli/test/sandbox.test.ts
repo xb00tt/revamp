@@ -9,31 +9,30 @@ import { canPrompt, chooseProfileName, existingProfileNames, pkexecPath, runAsRo
 const tempPaths = () => revampPaths({ HOME: mkdtempSync(join(tmpdir(), "revamp-sandbox-")), XDG_DATA_HOME: "", XDG_CONFIG_HOME: "", XDG_CACHE_HOME: "", XDG_STATE_HOME: "" });
 const PKEXEC = "/usr/bin/pkexec";
 
-test("canPrompt needs /usr/bin/pkexec and a display", () => {
+test("canPrompt needs the given pkexec to exist and a display", () => {
   const exists = (p: string) => p === PKEXEC;
-  assert.equal(canPrompt({ DISPLAY: ":0" }, exists), true);
-  assert.equal(canPrompt({ WAYLAND_DISPLAY: "wayland-0" }, exists), true);
-  assert.equal(canPrompt({}, exists), false);
-  assert.equal(canPrompt({ DISPLAY: "" }, exists), false);
-  assert.equal(canPrompt({ DISPLAY: ":0" }, () => false), false);
-  assert.equal(canPrompt({ DISPLAY: ":0" }, (p) => p === "/tmp/bin/pkexec"), false); // not looked up on PATH
+  assert.equal(canPrompt({ DISPLAY: ":0" }, PKEXEC, exists), true);
+  assert.equal(canPrompt({ WAYLAND_DISPLAY: "wayland-0" }, PKEXEC, exists), true);
+  assert.equal(canPrompt({}, PKEXEC, exists), false);
+  assert.equal(canPrompt({ DISPLAY: "" }, PKEXEC, exists), false);
+  assert.equal(canPrompt({ DISPLAY: ":0" }, PKEXEC, () => false), false);
+  assert.equal(canPrompt({ DISPLAY: ":0" }, "/tmp/bin/pkexec", exists), false); // the path it is given, not a PATH lookup
 });
 
-test("REVAMP_PKEXEC names another pkexec for tests; canPrompt and the spawn both follow it", () => {
+test("pkexecPath is /usr/bin/pkexec unless REVAMP_PKEXEC (a test seam) names another program", () => {
   assert.equal(pkexecPath({}), PKEXEC);
   assert.equal(pkexecPath({ REVAMP_PKEXEC: "" }), PKEXEC);
   assert.equal(pkexecPath({ REVAMP_PKEXEC: "/tmp/fake" }), "/tmp/fake");
-  assert.equal(canPrompt({ DISPLAY: ":0", REVAMP_PKEXEC: "/tmp/fake" }, (p) => p === "/tmp/fake"), true);
 });
 
 test("canPrompt's default check wants an executable file", () => {
   const bin = mkdtempSync(join(tmpdir(), "revamp-pkexec-"));
-  const env = { DISPLAY: ":0", REVAMP_PKEXEC: join(bin, "pkexec") };
-  assert.equal(canPrompt(env), false);
-  writeFileSync(join(bin, "pkexec"), "#!/bin/sh\n", { mode: 0o644 });
-  assert.equal(canPrompt(env), false); // present, but not executable
-  chmodSync(join(bin, "pkexec"), 0o755);
-  assert.equal(canPrompt(env), true);
+  const pkexec = join(bin, "pkexec");
+  assert.equal(canPrompt({ DISPLAY: ":0" }, pkexec), false);
+  writeFileSync(pkexec, "#!/bin/sh\n", { mode: 0o644 });
+  assert.equal(canPrompt({ DISPLAY: ":0" }, pkexec), false); // present, but not executable
+  chmodSync(pkexec, 0o755);
+  assert.equal(canPrompt({ DISPLAY: ":0" }, pkexec), true);
 });
 
 test("writeHelper writes <state>/sandbox/<name>.sh as 0644 and overwrites", () => {
@@ -57,6 +56,9 @@ test("runAsRoot pipes the script to pkexec /bin/sh -s and reports the status and
   assert.deepEqual(runAsRoot("echo hi\n", spawn(0)), { ok: true, status: 0, output: "out\nerr" });
   assert.deepEqual(calls, [[PKEXEC, ["/bin/sh", "-s"], "echo hi\n"]]);
   assert.deepEqual(runAsRoot("x", spawn(126)), { ok: false, status: 126, output: "out\nerr" });
+  calls.length = 0;
+  runAsRoot("y", spawn(0), "/tmp/fake");
+  assert.deepEqual(calls, [["/tmp/fake", ["/bin/sh", "-s"], "y"]]); // the path main.ts also gave canPrompt
   assert.deepEqual(runAsRoot("x", spawn(null)).ok, false);
 });
 

@@ -9,7 +9,6 @@ export type Spawn = (cmd: string, args: string[], input?: string) => { status: n
 export interface PromptEnv {
   DISPLAY?: string;
   WAYLAND_DISPLAY?: string;
-  REVAMP_PKEXEC?: string;
 }
 
 const PKEXEC = "/usr/bin/pkexec";
@@ -17,7 +16,7 @@ const PKEXEC = "/usr/bin/pkexec";
  * Always the absolute /usr/bin/pkexec, never a PATH lookup. REVAMP_PKEXEC is a test seam that swaps in another program
  * the user runs as themselves (a fake that logs its input): it is no way to root, which only the real pkexec gives.
  */
-export const pkexecPath = (env: Pick<PromptEnv, "REVAMP_PKEXEC"> = process.env): string => env.REVAMP_PKEXEC || PKEXEC;
+export const pkexecPath = (env: { REVAMP_PKEXEC?: string } = process.env): string => env.REVAMP_PKEXEC || PKEXEC;
 
 const isExecutable = (path: string): boolean => {
   try {
@@ -28,9 +27,9 @@ const isExecutable = (path: string): boolean => {
   }
 };
 
-/** pkexec is installed and a display is set. */
-export function canPrompt(env: PromptEnv, exists: (path: string) => boolean = isExecutable): boolean {
-  return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY) && exists(pkexecPath(env));
+/** `pkexec` (from pkexecPath) is installed and a display is set. Pass the same path to runAsRoot. */
+export function canPrompt(env: PromptEnv, pkexec: string, exists: (path: string) => boolean = isExecutable): boolean {
+  return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY) && exists(pkexec);
 }
 
 /**
@@ -53,8 +52,8 @@ const realSpawn: Spawn = (cmd, args, input) => {
 };
 
 /** Runs the script as root: `pkexec /bin/sh -s` with the script on its standard input. */
-export function runAsRoot(script: string, spawn: Spawn = realSpawn): { ok: boolean; status: number | null; output: string } {
-  const r = spawn(pkexecPath(), ["/bin/sh", "-s"], script);
+export function runAsRoot(script: string, spawn: Spawn = realSpawn, pkexec: string = pkexecPath()): { ok: boolean; status: number | null; output: string } {
+  const r = spawn(pkexec, ["/bin/sh", "-s"], script);
   return { ok: r.status === 0, status: r.status, output: `${r.stdout}${r.stderr}`.trim() };
 }
 

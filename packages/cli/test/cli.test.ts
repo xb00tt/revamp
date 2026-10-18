@@ -337,6 +337,19 @@ test("answering no to the sandbox prompt changes nothing but leaves the helper f
   assert.equal(readFileSync(s.helper, "utf8"), s.script);
 });
 
+test("sandbox runs after a y at its one question, and the end of input answers no", () => {
+  const s = sandboxHome();
+  const yes = cli(["sandbox", "hydra"], s.home, "y\n", s.env);
+  assert.equal(yes.status, 0, yes.stderr + yes.stdout);
+  assert.match(yes.stdout, /Write it with administrator rights\? \[y\/N\] /);
+  assert.equal(readFileSync(s.log, "utf8"), `/bin/sh -s\n${s.script}`);
+  const s2 = sandboxHome();
+  const eof = cli(["sandbox", "hydra"], s2.home, "", s2.env);
+  assert.equal(eof.status, 1);
+  assert.match(eof.stdout, /Nothing changed\./);
+  assert.equal(existsSync(s2.log), false);
+});
+
 test("sandbox reuses this user's suffixed profile instead of adding a second one for the same path", () => {
   const s = sandboxHome();
   const user = (spawnSync("id", ["-un"], { encoding: "utf8" }).stdout as string).trim();
@@ -373,6 +386,45 @@ test("uninstall offers to remove the profile and pipes removeHelper's script to 
   assert.equal(readFileSync(s.log, "utf8"), `/bin/sh -s\n${removeHelper("revamp-hydra")}`);
 });
 
+test("uninstall asks twice when piped y, y: the app, then the profile", () => {
+  const s = withProfile();
+  const r = cli(["uninstall", "hydra"], s.home, "y\ny\n", s.env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Remove Revamped hydra[^\n]*\? \[y\/N\] /);
+  assert.match(r.stdout, /Remove it with administrator rights\? \[y\/N\] /);
+  assert.match(r.stdout, /Removed \/etc\/apparmor\.d\/revamp-hydra\./);
+  assert.equal(readFileSync(s.log, "utf8"), `/bin/sh -s\n${removeHelper("revamp-hydra")}`);
+  assert.equal(existsSync(join(s.data, "apps/hydra")), false);
+});
+
+test("uninstall's profile question answered n keeps the profile and leaves the sudo way out", () => {
+  const s = withProfile();
+  const r = cli(["uninstall", "hydra"], s.home, "y\nn\n", s.env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Remove it with administrator rights\? \[y\/N\] /);
+  assert.match(r.stdout, /It stays\. Run it with sudo instead:\n {2}sudo sh .*revamp-hydra-remove\.sh/);
+  assert.equal(existsSync(s.log), false);
+  assert.equal(readFileSync(join(s.home, ".local/state/revamp/sandbox/revamp-hydra-remove.sh"), "utf8"), removeHelper("revamp-hydra"));
+  assert.equal(existsSync(join(s.data, "apps/hydra")), false); // the app itself was removed on the first y
+});
+
+test("uninstall's first question answered n removes nothing and never reaches the profile", () => {
+  const s = withProfile();
+  const r = cli(["uninstall", "hydra"], s.home, "n\ny\n", s.env);
+  assert.equal(r.status, 1);
+  assert.doesNotMatch(r.stdout, /sandbox profile/);
+  assert.equal(existsSync(join(s.data, "apps/hydra")), true);
+  assert.equal(existsSync(s.log), false);
+});
+
+test("the end of input answers no to the profile question", () => {
+  const s = withProfile();
+  const r = cli(["uninstall", "hydra"], s.home, "y\n", s.env); // the second question finds the input closed
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Remove it with administrator rights\? \[y\/N\] \nIt stays\./);
+  assert.equal(existsSync(s.log), false);
+});
+
 test("uninstall keeps going when the profile prompt is cancelled, and says the profile stays", () => {
   const s = withProfile(126);
   const r = cli(["uninstall", "hydra", "--yes"], s.home, "", s.env);
@@ -381,31 +433,29 @@ test("uninstall keeps going when the profile prompt is cancelled, and says the p
   assert.equal(existsSync(join(s.data, "apps/hydra")), false);
 });
 
-test("uninstall without --yes asks first, and a no leaves the profile with the sudo way out", () => {
-  const s = withProfile();
-  const r = cli(["uninstall", "hydra"], s.home, "y\nn\n", s.env);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /Remove it with administrator rights\? \[y\/N\] /);
-  assert.match(r.stdout, /It stays\. Run it with sudo instead:\n {2}sudo sh .*revamp-hydra-remove\.sh/);
-  assert.equal(existsSync(s.log), false);
-  assert.equal(readFileSync(join(s.home, ".local/state/revamp/sandbox/revamp-hydra-remove.sh"), "utf8"), removeHelper("revamp-hydra"));
-});
-
 test("uninstall removes both of this user's profiles in one script and says them", () => {
   const s = withProfile();
   const user = (spawnSync("id", ["-un"], { encoding: "utf8" }).stdout as string).trim();
   writeFileSync(join(s.profiles, `revamp-hydra-${user}`), "x");
-  const r = cli(["uninstall", "hydra"], s.home, "y\nn\n", s.env);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /Remove them with administrator rights\? \[y\/N\] /);
-  assert.match(r.stdout, /They stay\. Run it with sudo instead:/);
-  assert.equal(readFileSync(join(s.home, ".local/state/revamp/sandbox/revamp-hydra-remove.sh"), "utf8"), removeHelper(["revamp-hydra", `revamp-hydra-${user}`]));
+  const both = removeHelper(["revamp-hydra", `revamp-hydra-${user}`]);
+  const no = cli(["uninstall", "hydra"], s.home, "y\nn\n", s.env);
+  assert.equal(no.status, 0, no.stderr);
+  assert.match(no.stdout, /Remove them with administrator rights\? \[y\/N\] /);
+  assert.match(no.stdout, /They stay\. Run it with sudo instead:/);
+  assert.equal(readFileSync(join(s.home, ".local/state/revamp/sandbox/revamp-hydra-remove.sh"), "utf8"), both);
+  const s2 = withProfile();
+  writeFileSync(join(s2.profiles, `revamp-hydra-${user}`), "x");
+  const yes = cli(["uninstall", "hydra"], s2.home, "y\ny\n", s2.env);
+  assert.equal(yes.status, 0, yes.stderr);
+  assert.equal(readFileSync(s2.log, "utf8"), `/bin/sh -s\n${both}`);
 });
 
-test("uninstall without a display leaves the profile and the sudo command", () => {
+test("uninstall without a display shows the script, then leaves the profile and the sudo command", () => {
   const s = withProfile();
   const r = cli(["uninstall", "hydra", "--yes"], s.home, "", noDisplay(s.env));
   assert.equal(r.status, 0, r.stderr);
+  assert.ok(r.stdout.indexOf(removeHelper("revamp-hydra").trimEnd()) >= 0, r.stdout);
+  assert.ok(r.stdout.indexOf(removeHelper("revamp-hydra").trimEnd()) < r.stdout.indexOf("sudo sh "), r.stdout);
   assert.match(r.stdout, /sudo sh .*revamp-hydra-remove\.sh/);
   assert.equal(existsSync(s.log), false);
 });

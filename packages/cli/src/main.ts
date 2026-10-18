@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
 import { isSea } from "node:sea";
 import { parseArgs } from "node:util";
 import {
@@ -35,7 +35,7 @@ import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandida
 import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
-import { canPrompt, chooseProfileName, existingProfileNames, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
+import { canPrompt, chooseProfileName, existingProfileNames, pkexecPath, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
 import { serve } from "./serve.ts";
 import { installCli, installWindow } from "./install.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
@@ -64,14 +64,32 @@ const USAGE = `Usage:
 
 Without --bundle, an app's bundle comes from the first source that has it.`;
 
+// One interface for the whole run: a second one would find the first has already read the lines piped in behind the first
+// answer (`printf 'y\ny\n' | revamp uninstall hydra`). Lines are read through its iterator, which queues them.
+let input: { rl: Interface; lines: AsyncIterator<string>; closed: boolean } | undefined;
+
 async function confirm(question: string): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  // End of input answers no: question() never settles when stdin closes, so race it against the close.
-  const closed = new Promise<string>((resolve) => rl.once("close", () => resolve("")));
-  const answer = await Promise.race([rl.question(`${question} [y/N] `).catch(() => ""), closed]);
-  rl.close();
-  return /^y(es)?$/i.test(answer.trim());
+  if (!input) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    input = { rl, lines: rl[Symbol.asyncIterator](), closed: false };
+    rl.once("close", () => input && (input.closed = true));
+  }
+  const prompt = `${question} [y/N] `;
+  if (input.closed) process.stdout.write(prompt); // a closed interface can't prompt
+  else {
+    input.rl.setPrompt(prompt);
+    input.rl.prompt();
+  }
+  const next = await input.lines.next();
+  if (next.done) {
+    process.stdout.write("\n"); // the end of input answers no, on the prompt's line
+    return false;
+  }
+  return /^y(es)?$/i.test(next.value.trim());
 }
+
+/** Lets go of stdin so the process can exit. */
+const closeInput = () => input?.rl.close();
 
 async function sources(paths: Paths, sub: string | undefined, location: string | undefined, yes: boolean): Promise<number> {
   const needLocation = () => {
@@ -105,6 +123,11 @@ async function sources(paths: Paths, sub: string | undefined, location: string |
   }
 }
 
+// One source for pkexec's path: the check that a prompt is possible and the run use the same program.
+const PKEXEC = pkexecPath(process.env);
+const canAsk = () => canPrompt(process.env, PKEXEC);
+const asRoot = (script: string) => runAsRoot(script, undefined, PKEXEC);
+
 /** pkexec exits 126 when the prompt is dismissed and 127 when authorization fails. */
 const cancelled = (r: { status: number | null }) => r.status === 126 || r.status === 127;
 const pkexecFailed = (r: { status: number | null; output: string }, sudo: string) =>
@@ -122,7 +145,7 @@ async function sandbox(paths: Paths, id: string, yes: boolean): Promise<number> 
   if (!userNamespacesRestricted()) print(`This system doesn't restrict user namespaces, so Revamped ${id} starts without a profile. Installing one anyway is harmless.`);
   showScript(script);
   print(`This writes ${file} and runs: apparmor_parser -r ${file}`);
-  if (!canPrompt(process.env)) {
+  if (!canAsk()) {
     print(sudo());
     return 1;
   }
@@ -130,7 +153,7 @@ async function sandbox(paths: Paths, id: string, yes: boolean): Promise<number> 
     print(`Nothing changed. ${sudo()}`);
     return 1;
   }
-  const r = runAsRoot(script);
+  const r = asRoot(script);
   if (r.ok) {
     print(`Installed and loaded ${file}. Start ${id} (Revamped) again.`);
     return 0;
@@ -148,16 +171,16 @@ async function removeProfile(paths: Paths, id: string, yes: boolean): Promise<vo
   const sudo = () => sudoInstructions(writeHelper(paths, `${names[0]}-remove`, script));
   const files = names.map((n) => `${PROFILE_DIR}/${n}`);
   for (const f of files) print(`A sandbox profile ${f} remains.`);
-  if (!canPrompt(process.env)) {
+  showScript(script);
+  if (!canAsk()) {
     print(sudo());
     return;
   }
-  showScript(script);
   if (!yes && !(await confirm(`Remove ${many ? "them" : "it"} with administrator rights?`))) {
     print(`${many ? "They stay." : "It stays."} ${sudo()}`);
     return;
   }
-  const r = runAsRoot(script);
+  const r = asRoot(script);
   if (r.ok) print(`Removed ${files.join(", ")}.`);
   else print(cancelled(r) ? `The administrator prompt was cancelled; the ${many ? "profiles stay" : "profile stays"}.` : pkexecFailed(r, sudo()));
 }
@@ -320,12 +343,14 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
-main(process.argv.slice(2)).then(
-  (code) => {
-    process.exitCode = code;
-  },
-  (e) => {
-    printError(`revamp: ${e instanceof Error ? e.message : String(e)}`);
-    process.exitCode = 1;
-  },
-);
+main(process.argv.slice(2))
+  .then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (e) => {
+      printError(`revamp: ${e instanceof Error ? e.message : String(e)}`);
+      process.exitCode = 1;
+    },
+  )
+  .finally(closeInput);
