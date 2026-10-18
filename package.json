@@ -16,7 +16,8 @@
     "revamp": "node packages/cli/src/main.ts",
     "install:cli": "npm run build -w @revamp-app/cli && node packages/cli/scripts/install.ts",
     "gui:install": "npm run install:cli && npm run tauri:build -w @revamp-app/gui && node packages/gui/scripts/install.ts",
-    "publish:packages": "node scripts/publish-packages.ts"
+    "publish:packages": "node scripts/publish-packages.ts",
+    "release:app": "node scripts/release-app.ts"
   },
   "devDependencies": {
     "@electron/asar": "^4.3.1",

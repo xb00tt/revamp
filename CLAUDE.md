@@ -26,9 +26,10 @@ npm run revamp -- patches hydra               # CLI from source; also: patch <ap
                                               #   [--enable/--disable "<patch>"] [--option "<patch>:<key>=<value>"] [--yes]
                                               #   [--bundle file] [--dry-run], list, rollback <app>, uninstall <app>,
                                               #   sources add/list/remove, check [--notify], update [app] [--force] [--yes],
-                                              #   timer enable|disable, serve
+                                              #   timer enable|disable, self-install (SEA only), serve
 npm run publish:packages                      # owner only, from a worktree at origin/main after npm login: compiles and publishes @revamp-app/{sdk,engine,cli}, tags v<version>
 npm run publish:packages -- --pack <dir>      # the same compile, but only writes the three .tgz files there: only the version check runs, nothing published
+npm run release:app                           # owner only: after publish:packages; GitHub release v<version> with the Linux binaries (--pack <dir> = dry run)
 ```
 
 - Without `--bundle`, the CLI takes an app's bundle from the first source that has it (`~/.config/revamp/sources.json`, bundles cached as `~/.cache/revamp/bundles/<sha256>.mjs`). There is no other fallback: without `--bundle` and without a source for the app it fails with `no bundle source has "<app>"; add one, e.g. revamp sources add xb00tt/revamp-patches`. A source's pinned bundle is what runs, so a bundle under development needs `--bundle <file>`.
