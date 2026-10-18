@@ -13,6 +13,9 @@ import { revampPaths } from "../src/paths.ts";
 import { checkMessage, checkUpdates, loadSkipped, skipVersion, updateApp, type AppCheck, type UpdateOptions } from "../src/updates.ts";
 import { demoDeb, writeDemoBundle } from "./helpers/demo.ts";
 
+// patchApp asks whether the sandbox profile exists: never in the machine's /etc/apparmor.d.
+process.env.REVAMP_PROFILE_DIR = mkdtempSync(join(tmpdir(), "revamp-profiles-"));
+
 /** Demo 1.0.0 installed from a file source; the fake GitHub's latest release is `state.latest`. */
 async function setup(list3 = false) {
   const deb = await demoDeb();

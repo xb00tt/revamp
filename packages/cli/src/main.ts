@@ -34,7 +34,7 @@ import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandida
 import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
-import { applyProfile, cancelled, canPrompt, existingProfileNames, pkexecFailed, pkexecPath, planProfile, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
+import { applyProfile, canPrompt, existingProfileNames, hasAbi4, OLD_APPARMOR, pkexecPath, planProfile, rootFailure, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
 import { serve } from "./serve.ts";
 import { installCli, installWindow } from "./install.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
@@ -58,7 +58,7 @@ const USAGE = `Usage:
   revamp timer enable|disable
   revamp self-install   install this binary (and the window beside it) for your user
   revamp doctor         check this machine: libraries, the sandbox, PATH, the timer, sources
-  revamp sandbox <app>  install the AppArmor profile a Revamped app needs on Ubuntu 24.04+ (one administrator prompt)
+  revamp sandbox <app> [--yes]  install the AppArmor profile a Revamped app needs on Ubuntu 24.04+ (one administrator prompt)
   revamp serve        JSON-RPC 2.0 on stdin/stdout, for the GUI
 
 Without --bundle, an app's bundle comes from the first source that has it.`;
@@ -133,8 +133,17 @@ const asRoot = (script: string) => runAsRoot(script, undefined, PKEXEC);
 const showScript = (script: string) => print(`This script runs with administrator rights:\n\n${script.trimEnd()}\n`);
 
 async function sandbox(paths: Paths, id: string, yes: boolean): Promise<number> {
-  const plan = planProfile(paths, id);
-  if (!userNamespacesRestricted()) print(`This system doesn't restrict user namespaces, so Revamped ${id} starts without a profile. Installing one anyway is harmless.`);
+  // Never ask for root on a machine that doesn't need it.
+  if (!userNamespacesRestricted()) {
+    print(`This system doesn't restrict user namespaces, so Revamped ${id} starts without a profile. Nothing to do.`);
+    return 0;
+  }
+  const env = realSandboxEnv();
+  if (!hasAbi4(env)) {
+    printError(OLD_APPARMOR);
+    return 2;
+  }
+  const plan = planProfile(paths, id, env);
   showScript(plan.script);
   print(`This writes ${plan.file} and runs: apparmor_parser -r ${plan.file}`);
   if (!canAsk()) {
@@ -173,8 +182,7 @@ async function removeProfile(paths: Paths, id: string, yes: boolean): Promise<vo
     return;
   }
   const r = asRoot(script);
-  if (r.ok) print(`Removed ${files.join(", ")}.`);
-  else print(cancelled(r) ? `The administrator prompt was cancelled; the ${many ? "profiles stay" : "profile stays"}.` : pkexecFailed(r, sudo()));
+  print(r.ok ? `Removed ${files.join(", ")}.` : rootFailure(r, sudo, many ? "the profiles stay" : "the profile stays"));
 }
 
 async function main(argv: string[]): Promise<number> {

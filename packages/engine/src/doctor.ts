@@ -139,7 +139,7 @@ export function runDoctor(paths: Paths, env: DoctorEnv): DoctorCheck[] {
       try {
         names = sandboxProfileNames(paths, appId, env);
       } catch (e) {
-        checks.push({ id, label, severity: "fixable", detail: `unsafe name: ${(e as Error).message}` });
+        checks.push({ id, label, severity: "fixable", detail: (e as Error).message });
         continue;
       }
       const found = names.find((n) => env.fileExists(join(PROFILE_DIR, n)));

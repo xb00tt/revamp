@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  assertPrivateDataDir,
   installedExecutable,
   installHelper,
-  profileFileExists,
   profileName,
   profilePattern,
   profileText,
@@ -31,15 +32,22 @@ test("userNamespacesRestricted reads the sysctl file", () => {
   assert.equal(userNamespacesRestricted(join(dir, "missing")), false);
 });
 
-test("profileName suffixes the user only when another user's profile exists", () => {
-  assert.equal(profileName("hydra", undefined, DATA, "a"), "revamp-hydra");
-  assert.equal(profileName("hydra", `profile revamp-hydra "${DATA}/apps/hydra/*/hydralauncher" {}`, DATA, "a"), "revamp-hydra");
-  assert.equal(profileName("hydra", `${DATA}/apps/hydra/*/hydralauncher`, DATA, "a"), "revamp-hydra");
-  assert.equal(profileName("hydra", `profile revamp-hydra "/home/b/.local/share/revamp/apps/hydra/*/hydralauncher" {}`, DATA, "a"), "revamp-hydra-a");
+test("profileName suffixes the uid only when another user's profile exists", () => {
+  assert.equal(profileName("hydra", undefined, DATA, 1000), "revamp-hydra");
+  assert.equal(profileName("hydra", `profile revamp-hydra "${DATA}/apps/hydra/*/hydralauncher" {}`, DATA, 1000), "revamp-hydra");
+  assert.equal(profileName("hydra", `${DATA}/apps/hydra/*/hydralauncher`, DATA, 1000), "revamp-hydra");
+  assert.equal(profileName("hydra", `profile revamp-hydra "/home/b/.local/share/revamp/apps/hydra/*/hydralauncher" {}`, DATA, 1000), "revamp-hydra-u1000");
   // a shorter data dir must not match inside another user's longer path
-  assert.equal(profileName("hydra", `"/home/a/.local/share/revamp/apps/hydra/*/h"`, "/a/.local/share/revamp", "x"), "revamp-hydra-x");
-  assert.throws(() => profileName("hydra", "other", DATA, "../x"), /unsafe user/);
-  assert.throws(() => profileName("../hydra", undefined, DATA, "a"), /unsafe app id/);
+  assert.equal(profileName("hydra", `"/home/a/.local/share/revamp/apps/hydra/*/h"`, "/a/.local/share/revamp", 7), "revamp-hydra-u7");
+  assert.throws(() => profileName("../hydra", undefined, DATA, 1000), /unsafe app id/);
+});
+
+test("profileName counts the v1 doc's /home/* profile as this user's when the data dir is the default one under /home", () => {
+  const glob = `profile revamp-hydra "/home/*/.local/share/revamp/apps/hydra/*/hydralauncher" flags=(unconfined) {`;
+  assert.equal(profileName("hydra", glob, DATA, 1000), "revamp-hydra");
+  assert.equal(profileName("hydra", glob, "/srv/a/revamp", 1000), "revamp-hydra-u1000"); // the glob doesn't cover this data dir
+  assert.equal(profileName("hydra", glob, "/home/a/data/revamp", 1000), "revamp-hydra-u1000");
+  assert.equal(profileName("hydra", glob.replace("hydra/*", "heroic/*"), DATA, 1000), "revamp-hydra-u1000"); // another app's glob
 });
 
 test("profilePattern joins the data dir, app and executable", () => {
@@ -47,6 +55,7 @@ test("profilePattern joins the data dir, app and executable", () => {
   assert.equal(profilePattern(DATA, "heroic", "bin/heroic"), `${DATA}/apps/heroic/*/bin/heroic`);
   assert.throws(() => profilePattern(DATA, "hydra", "../evil"), /unsafe executable/);
   assert.throws(() => profilePattern(DATA, "../hydra", "x"), /unsafe app id/);
+  assert.throws(() => profilePattern("home/a/revamp", "hydra", "hydralauncher"), /unsupported data path/); // AppArmor attaches by absolute path
 });
 
 const profile = (name: string, pattern: string) =>
@@ -76,13 +85,15 @@ test("profileText refuses AppArmor glob characters in the data dir but keeps the
 
 const header = "#!/bin/sh\nset -eu\numask 022\n";
 
-test("installHelper writes the file, moves it over and reloads", () => {
+test("installHelper writes the file beside its place, parse-checks it, then moves it over and reloads; failures exit 3", () => {
   const text = profileText("revamp-hydra", profilePattern(DATA, "hydra", "hydralauncher"));
   assert.equal(
     installHelper("revamp-hydra", text),
-    `${header}cat > '/etc/apparmor.d/revamp-hydra.new' <<'REVAMP_PROFILE'\n${text}\nREVAMP_PROFILE\n` +
-      `mv -f '/etc/apparmor.d/revamp-hydra.new' '/etc/apparmor.d/revamp-hydra'\n` +
-      `apparmor_parser -r '/etc/apparmor.d/revamp-hydra'\n`,
+    `${header}trap "rm -f '/etc/apparmor.d/revamp-hydra.new'" EXIT\n` +
+      `cat > '/etc/apparmor.d/revamp-hydra.new' <<'REVAMP_PROFILE' || exit 3\n${text}\nREVAMP_PROFILE\n` +
+      `apparmor_parser -Q -K '/etc/apparmor.d/revamp-hydra.new' || exit 3\n` +
+      `mv -f '/etc/apparmor.d/revamp-hydra.new' '/etc/apparmor.d/revamp-hydra' || exit 3\n` +
+      `apparmor_parser -r '/etc/apparmor.d/revamp-hydra' || exit 3\n`,
   );
 });
 
@@ -132,24 +143,83 @@ test("realSandboxEnv reads profiles from the given dir, other paths as they are"
 
 test("realSandboxEnv defaults to $REVAMP_PROFILE_DIR, then /etc/apparmor.d; the helpers always write /etc/apparmor.d", (t) => {
   const dir = tmp();
+  const name = `revamp-test-${randomUUID()}`; // a name no real /etc/apparmor.d holds, so the default lookup finds nothing
+  writeFileSync(join(dir, name), "x");
   writeFileSync(join(dir, "revamp-hydra"), "x");
   const saved = process.env.REVAMP_PROFILE_DIR;
   t.after(() => (saved === undefined ? delete process.env.REVAMP_PROFILE_DIR : (process.env.REVAMP_PROFILE_DIR = saved)));
   process.env.REVAMP_PROFILE_DIR = dir;
-  assert.equal(realSandboxEnv().fileExists(join(PROFILE_DIR, "revamp-hydra")), true);
+  assert.equal(realSandboxEnv().fileExists(join(PROFILE_DIR, name)), true);
+  assert.equal(realSandboxEnv().uid, process.getuid!());
   const paths = revampPaths({ HOME: tmp() });
-  assert.deepEqual(sandboxProfileNames(paths, "hydra", { ...realSandboxEnv(), username: "bob" }), ["revamp-hydra-bob", "revamp-hydra-bob"]); // the plain file is not ours
+  assert.deepEqual(sandboxProfileNames(paths, "hydra", { ...realSandboxEnv(), uid: 7 }), ["revamp-hydra-u7", "revamp-hydra-u7"]); // the plain file is not ours
   assert.match(installHelper("revamp-hydra", "x"), /'\/etc\/apparmor\.d\/revamp-hydra'/);
   assert.doesNotMatch(removeHelper("revamp-hydra"), new RegExp(dir));
   process.env.REVAMP_PROFILE_DIR = "";
-  assert.equal(realSandboxEnv().fileExists(join(PROFILE_DIR, "revamp-hydra")), false); // empty means the default
+  assert.equal(realSandboxEnv().fileExists(join(PROFILE_DIR, name)), false); // empty means the default
+  delete process.env.REVAMP_PROFILE_DIR;
+  assert.equal(realSandboxEnv().fileExists(join(PROFILE_DIR, name)), false);
 });
 
-test("profileFileExists looks in the given dir", () => {
-  const dir = tmp();
-  assert.equal(profileFileExists("revamp-hydra", dir), false);
-  writeFileSync(join(dir, "revamp-hydra"), "x");
-  assert.equal(profileFileExists("revamp-hydra", dir), true);
+test("userNamespacesRestricted defaults to $REVAMP_SYSCTL_PATH outside the single executable", (t) => {
+  const file = join(tmp(), "sysctl");
+  writeFileSync(file, "1\n");
+  const saved = process.env.REVAMP_SYSCTL_PATH;
+  t.after(() => (saved === undefined ? delete process.env.REVAMP_SYSCTL_PATH : (process.env.REVAMP_SYSCTL_PATH = saved)));
+  process.env.REVAMP_SYSCTL_PATH = file;
+  assert.equal(userNamespacesRestricted(), true);
+  writeFileSync(file, "0\n");
+  assert.equal(userNamespacesRestricted(), false);
+});
+
+test("assertPrivateDataDir returns the real path of a dir only root and this user can change", () => {
+  const home = tmp(); // mkdtemp makes it 0700
+  const data = join(home, "data");
+  mkdirSync(data, { mode: 0o755 });
+  assert.equal(assertPrivateDataDir(data), realpathSync(data));
+  // a symlinked XDG_DATA_HOME: AppArmor attaches by the canonical path
+  const link = join(tmp(), "link");
+  symlinkSync(data, link);
+  assert.equal(assertPrivateDataDir(link), realpathSync(data));
+  // not created yet: judged by what exists above it
+  assert.equal(assertPrivateDataDir(join(data, "missing/revamp")), join(data, "missing/revamp"));
+  assert.throws(() => assertPrivateDataDir("data/revamp"), /unsupported data path/);
+});
+
+test("assertPrivateDataDir refuses a dir another user could write or recreate", () => {
+  const open = tmp();
+  chmodSync(open, 0o777);
+  const data = join(open, "revamp");
+  mkdirSync(data, { mode: 0o755 });
+  chmodSync(data, 0o755);
+  assert.throws(() => assertPrivateDataDir(data), new RegExp(`^Error: unsafe data path ${data}: ${open} is writable by other users$`));
+  assert.throws(() => assertPrivateDataDir(join(open, "missing")), /is writable by other users/);
+  chmodSync(open, 0o700);
+  chmodSync(data, 0o777);
+  assert.throws(() => assertPrivateDataDir(data), new RegExp(`${data} is writable by other users`)); // the dir itself
+  chmodSync(data, 0o770);
+  assert.throws(() => assertPrivateDataDir(data, process.getuid!(), -1), /is writable by other users/); // a group that isn't the user's own
+  // owned by another user (seen as one by passing another uid)
+  chmodSync(data, 0o755);
+  assert.throws(() => assertPrivateDataDir(data, 123456), new RegExp(`is owned by ${process.getuid!()}$`));
+});
+
+test("assertPrivateDataDir allows a sticky world-writable dir (like /tmp) above a child this user owns", () => {
+  const sticky = tmp();
+  chmodSync(sticky, 0o1777);
+  const data = join(sticky, "revamp");
+  mkdirSync(data, { mode: 0o700 });
+  assert.equal(assertPrivateDataDir(data), realpathSync(data));
+  // a missing child of a sticky dir is anyone's to create
+  assert.throws(() => assertPrivateDataDir(join(sticky, "missing")), /is writable by other users/);
+});
+
+test("assertPrivateDataDir allows a group-writable dir of the user's private group (umask 002)", { skip: process.getuid!() !== process.getgid!() && "this user's group id is not their user id" }, () => {
+  const data = join(tmp(), "revamp");
+  mkdirSync(data);
+  chmodSync(data, 0o775);
+  assert.equal(statSync(data).gid, process.getgid!());
+  assert.equal(assertPrivateDataDir(data), realpathSync(data));
 });
 
 function withDesktop(exec?: (data: string) => string) {

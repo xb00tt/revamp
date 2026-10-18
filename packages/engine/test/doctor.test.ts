@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { doctorExitCode, onPath, parseTimerShow, realDoctorEnv, runDoctor, WINDOW_GLIBC, type DoctorEnv } from "../src/doctor.ts";
@@ -45,7 +45,7 @@ function env(p: Paths, o: Partial<DoctorEnv> & { sysctl?: string; files?: string
     timer: () => ({ enabled: true, active: true, lastTrigger: "Sun 2026-10-18 09:00:00 UTC", nextElapse: "Mon 2026-10-19 09:00:00 UTC" }),
     pathEntries: ["/usr/bin", `${HOME}/.local/bin`],
     home: HOME,
-    username: "u",
+    uid: 7,
     ...rest,
   };
 }
@@ -130,11 +130,11 @@ test("the sandbox check finds the profile under the second user's suffixed name"
   // another user's base profile, ours not written yet: fixable
   assert.equal(by(runDoctor(p, env(p, { sysctl: "1", files: [base], texts: { [base]: other } })), "sandbox-hydra")?.severity, "fixable");
   // ours is the suffixed one: ok
-  const suffixed = runDoctor(p, env(p, { sysctl: "1", files: [base, `${base}-u`], texts: { [base]: other } }));
+  const suffixed = runDoctor(p, env(p, { sysctl: "1", files: [base, `${base}-u7`], texts: { [base]: other } }));
   assert.equal(by(suffixed, "sandbox-hydra")?.severity, "ok");
-  assert.match(by(suffixed, "sandbox-hydra")!.detail, /revamp-hydra-u present/);
+  assert.match(by(suffixed, "sandbox-hydra")!.detail, /revamp-hydra-u7 present/);
   // no base profile, but a suffixed one from earlier also counts
-  const earlier = runDoctor(p, env(p, { sysctl: "1", files: [`${base}-u`] }));
+  const earlier = runDoctor(p, env(p, { sysctl: "1", files: [`${base}-u7`] }));
   assert.equal(by(earlier, "sandbox-hydra")?.severity, "ok");
 });
 
@@ -147,7 +147,7 @@ test("sandboxProfilePresent: one rule for the doctor and the install note", () =
   assert.equal(present({}), false);
   assert.equal(present({ files: [base], texts: { [base]: mine } }), true);
   assert.equal(present({ files: [base], texts: { [base]: other } }), false);
-  assert.equal(present({ files: [base, `${base}-u`], texts: { [base]: other } }), true);
+  assert.equal(present({ files: [base, `${base}-u7`], texts: { [base]: other } }), true);
   // the doctor agrees with it
   assert.equal(by(runDoctor(p, env(p, { sysctl: "1", files: [base], texts: { [base]: other } })), "sandbox-hydra")?.severity, "fixable");
 });
@@ -156,19 +156,18 @@ test("an unsafe app name is a fixable check, not a throw", () => {
   const p = setup({ apps: ["my app"] });
   const check = by(runDoctor(p, env(p, { sysctl: "1" })), "sandbox-my app")!;
   assert.equal(check.severity, "fixable");
-  assert.match(check.detail, /^unsafe name: unsafe app id "my app"/);
+  assert.match(check.detail, /^unsafe app id "my app"/);
   assert.throws(() => sandboxProfilePresent(p, "my app", env(p)), /unsafe app id/);
 });
 
-test("an empty or unsafe username is the same fixable check; an unsafe app id reads no file", () => {
+test("a data dir other users can write is the same fixable check; an unsafe app id reads no file", () => {
   const p = setup();
-  for (const username of ["", "a b"]) {
-    const check = by(runDoctor(p, env(p, { sysctl: "1", username })), "sandbox-hydra")!;
-    assert.equal(check.severity, "fixable");
-    assert.match(check.detail, /^unsafe name: unsafe user /);
-  }
+  chmodSync(p.data, 0o777);
+  const check = by(runDoctor(p, env(p, { sysctl: "1" })), "sandbox-hydra")!;
+  assert.equal(check.severity, "fixable");
+  assert.equal(check.detail, `unsafe data path ${p.data}: ${p.data} is writable by other users`);
   const reads: string[] = [];
-  const spy = { readFile: (f: string) => (reads.push(f), undefined), fileExists: () => true, username: "u" };
+  const spy = { readFile: (f: string) => (reads.push(f), undefined), fileExists: () => true, uid: 7 };
   assert.throws(() => sandboxProfilePresent(p, "../x", spy), /unsafe app id/);
   assert.deepEqual(reads, []);
 });
@@ -281,7 +280,7 @@ test("realDoctorEnv has the right shape", () => {
   assert.equal(typeof e.arch, "string");
   assert.ok(Array.isArray(e.pathEntries));
   assert.equal(typeof e.home, "string");
-  assert.equal(typeof e.username, "string");
+  assert.equal(e.uid, process.getuid!());
   for (const fn of [e.readFile, e.fileExists, e.sharedLibs, e.timer]) assert.equal(typeof fn, "function");
   assert.equal(e.readFile(join(tmp(), "missing")), undefined);
   assert.equal(e.fileExists(tmp()), true);

@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { userInfo } from "node:os";
-import { join } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync, type Stats } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
+import { isSea } from "node:sea";
 import { parseDesktopEntry } from "./desktop.ts";
 import { desktopFilePath } from "./install.ts";
 import { appDir, assertSafeName, assertSafeRelativePath, type Paths } from "./paths.ts";
@@ -8,8 +8,16 @@ import { appDir, assertSafeName, assertSafeRelativePath, type Paths } from "./pa
 export const PROFILE_DIR = "/etc/apparmor.d";
 export const SYSCTL_PATH = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns";
 
-/** true when the file reads "1"; false when "0" or missing (not an AppArmor system). */
-export function userNamespacesRestricted(sysctlPath: string = SYSCTL_PATH): boolean {
+/**
+ * A test seam's value, read only when not running as the single executable: the profile lookup decides which file root
+ * overwrites or removes, so a stray variable must never steer root in the shipped binary. Empty counts as unset.
+ */
+export function testSeam(name: "REVAMP_PROFILE_DIR" | "REVAMP_PKEXEC" | "REVAMP_SYSCTL_PATH", env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return (!isSea() && env[name]) || undefined;
+}
+
+/** true when the file reads "1"; false when "0" or missing (not an AppArmor system). Default: $REVAMP_SYSCTL_PATH (a test seam), else the sysctl. */
+export function userNamespacesRestricted(sysctlPath: string = testSeam("REVAMP_SYSCTL_PATH") ?? SYSCTL_PATH): boolean {
   try {
     return readFileSync(sysctlPath, "utf8").trim() === "1";
   } catch {
@@ -17,35 +25,34 @@ export function userNamespacesRestricted(sysctlPath: string = SYSCTL_PATH): bool
   }
 }
 
-/** "revamp-<appId>"; with `username` when an existing profile text names another path (a second user). */
-export function profileName(appId: string, existing: string | undefined, dataDir: string, username: string): string {
+/**
+ * "revamp-<appId>"; "revamp-<appId>-u<uid>" when an existing profile text names another path (a second user).
+ * `dataDir` is the resolved one (assertPrivateDataDir). The v1 doc's hand-written `/home/*` profile counts as this user's
+ * when the data dir is the default one under /home, so it doesn't get a second profile for the same path.
+ */
+export function profileName(appId: string, existing: string | undefined, dataDir: string, uid: number): string {
   const base = `revamp-${assertSafeName("app id", appId)}`;
   if (existing === undefined) return base;
-  const prefix = `${dataDir}/apps/${appId}/`;
   // Anchored on what precedes the path, so a short data dir doesn't match inside another user's longer one.
-  const ours = existing.startsWith(prefix) || ['"', " ", "\n"].some((c) => existing.includes(c + prefix));
-  return ours ? base : `${base}-${assertSafeName("user", username)}`;
+  const names = (dir: string) => existing.startsWith(`${dir}/apps/${appId}/`) || ['"', " ", "\n"].some((c) => existing.includes(`${c}${dir}/apps/${appId}/`));
+  const ours = names(dataDir) || (/^\/home\/[^/]+\/\.local\/share\/revamp$/.test(dataDir) && names("/home/*/.local/share/revamp"));
+  return ours ? base : `${base}-u${uid}`;
 }
 
 /** What the profile lookups read from the machine, so tests supply a fake. */
 export interface SandboxProfileEnv {
   readFile(path: string): string | undefined;
   fileExists(path: string): boolean;
-  username: string;
+  /** This user's uid: the suffix of a second user's profile name. */
+  uid: number;
 }
 
 /**
- * The real machine; the username falls back to $USER when the user database can't be read.
- * `profileDir` (default $REVAMP_PROFILE_DIR, else /etc/apparmor.d) is where reads of /etc/apparmor.d/<file> look instead:
- * a test seam for reading only. installHelper/removeHelper keep the PROFILE_DIR constant, so the knob can never move where root writes.
+ * The real machine. `profileDir` (default $REVAMP_PROFILE_DIR, a test seam, else /etc/apparmor.d) is where reads of
+ * /etc/apparmor.d/<file> look instead: for reading only. installHelper/removeHelper keep the PROFILE_DIR constant, so the
+ * knob can never move where root writes.
  */
-export function realSandboxEnv(profileDir: string = process.env.REVAMP_PROFILE_DIR || PROFILE_DIR): SandboxProfileEnv {
-  let username = process.env.USER ?? "";
-  try {
-    username = userInfo().username;
-  } catch {
-    // keep $USER
-  }
+export function realSandboxEnv(profileDir: string = testSeam("REVAMP_PROFILE_DIR") ?? PROFILE_DIR): SandboxProfileEnv {
   const at = (path: string) => (path.startsWith(`${PROFILE_DIR}/`) ? join(profileDir, path.slice(PROFILE_DIR.length + 1)) : path);
   return {
     readFile: (path) => {
@@ -56,28 +63,62 @@ export function realSandboxEnv(profileDir: string = process.env.REVAMP_PROFILE_D
       }
     },
     fileExists: (path) => existsSync(at(path)),
-    username,
+    uid: process.getuid!(),
   };
 }
 
-/** The profile names that count as this user's for an app: the plain one unless another user's profile holds it, and the suffixed one an earlier run may have used. Throws on an unsafe app id or username. */
-export function sandboxProfileNames(
-  paths: Paths,
-  appId: string,
-  env: Pick<SandboxProfileEnv, "readFile" | "username">,
-): readonly [computed: string, suffixed: string] {
-  const base = `revamp-${assertSafeName("app id", appId)}`; // before any path is built from it
-  assertSafeName("user", env.username);
-  return [profileName(appId, env.readFile(join(PROFILE_DIR, base)), paths.data, env.username), `${base}-${env.username}`];
+/**
+ * The data dir's real path (AppArmor attaches by canonical path), refused when another local user could put files there
+ * (sshd StrictModes style): it and every dir above it must be owned by root or this user and not writable by others.
+ * A sticky dir (/tmp) may be writable by others above a child that exists, since only its owner can rename or remove it;
+ * a part that doesn't exist yet counts as writable by whoever may write the dir above it.
+ */
+export function assertPrivateDataDir(dir: string, uid: number = process.getuid!(), gid: number = process.getgid!()): string {
+  if (!isAbsolute(dir)) throw new Error(`unsupported data path: ${JSON.stringify(dir)}`);
+  let real = dir;
+  try {
+    real = realpathSync(dir);
+  } catch {
+    // not created yet: judged by what exists above it
+  }
+  let child: Stats | undefined; // the part below `d`, when it exists
+  for (let d = real; ; d = dirname(d)) {
+    let st: Stats | undefined;
+    try {
+      st = statSync(d);
+    } catch {
+      // missing
+    }
+    if (st) {
+      if (st.uid !== 0 && st.uid !== uid) throw new Error(`unsafe data path ${dir}: ${d} is owned by ${st.uid}`);
+      // ponytail: group write is fine for the user's private group (gid == uid, Ubuntu's umask 002); telling whether
+      // anyone else is in that group needs /etc/group. Upgrade path: read its members.
+      const others = (st.mode & 0o002) !== 0 || ((st.mode & 0o020) !== 0 && !(st.gid === uid && gid === uid));
+      if (others && !((st.mode & 0o1000) !== 0 && child)) throw new Error(`unsafe data path ${dir}: ${d} is writable by other users`);
+    }
+    if (d === "/") return real;
+    child = st;
+  }
 }
 
-/** Whether this user's sandbox profile for the app is in /etc/apparmor.d (not whether it is loaded: that needs root). Throws on an unsafe app id or username. */
+/**
+ * The profile names that count as this user's for an app: the plain one unless another user's profile holds it, and the
+ * suffixed one an earlier run may have used. Throws on an unsafe app id or data dir.
+ */
+export function sandboxProfileNames(paths: Paths, appId: string, env: Pick<SandboxProfileEnv, "readFile" | "uid">): readonly [computed: string, suffixed: string] {
+  const base = `revamp-${assertSafeName("app id", appId)}`; // before any path is built from it
+  const data = assertPrivateDataDir(paths.data);
+  return [profileName(appId, env.readFile(join(PROFILE_DIR, base)), data, env.uid), `${base}-u${env.uid}`];
+}
+
+/** Whether this user's sandbox profile for the app is in /etc/apparmor.d (not whether it is loaded: that needs root). Throws on an unsafe app id or data dir. */
 export function sandboxProfilePresent(paths: Paths, appId: string, env: SandboxProfileEnv): boolean {
   return sandboxProfileNames(paths, appId, env).some((n) => env.fileExists(join(PROFILE_DIR, n)));
 }
 
-/** The AppArmor path pattern: "<dataDir>/apps/<appId>/<any version>/<executable>". */
+/** The AppArmor path pattern: "<dataDir>/apps/<appId>/<any version>/<executable>". The data dir must be absolute. */
 export function profilePattern(dataDir: string, appId: string, executable: string): string {
+  if (!isAbsolute(dataDir)) throw new Error(`unsupported data path: ${JSON.stringify(dataDir)}`);
   return `${dataDir}/apps/${assertSafeName("app id", appId)}/*/${assertSafeRelativePath("executable", executable)}`;
 }
 
@@ -111,13 +152,20 @@ function profilePath(name: string): string {
   return `${PROFILE_DIR}/${name}`;
 }
 
-/** sh script, run as root: write the profile beside its place, move it over, reload it. */
+/**
+ * sh script, run as root: write the profile beside its place, parse-check it without loading, move it over, reload it.
+ * A file that doesn't parse never reaches /etc/apparmor.d (the boot would retry it forever), and the trap removes the
+ * `.new` file on every way out. Each failure exits 3, never pkexec's own 126 (dismissed) or 127.
+ */
 export function installHelper(name: string, text: string): string {
   if (text.split("\n").includes("REVAMP_PROFILE")) throw new Error("the profile text would end the script's heredoc (REVAMP_PROFILE)");
   const path = profilePath(name);
   return (
-    `${HEADER}cat > '${path}.new' <<'REVAMP_PROFILE'\n${text}\nREVAMP_PROFILE\n` +
-    `mv -f '${path}.new' '${path}'\napparmor_parser -r '${path}'\n`
+    `${HEADER}trap "rm -f '${path}.new'" EXIT\n` +
+    `cat > '${path}.new' <<'REVAMP_PROFILE' || exit 3\n${text}\nREVAMP_PROFILE\n` +
+    `apparmor_parser -Q -K '${path}.new' || exit 3\n` +
+    `mv -f '${path}.new' '${path}' || exit 3\n` +
+    `apparmor_parser -r '${path}' || exit 3\n`
   );
 }
 
@@ -126,10 +174,6 @@ export function removeHelper(names: string | string[]): string {
   const list = typeof names === "string" ? [names] : names;
   if (list.length === 0) throw new Error("no profile to remove");
   return HEADER + list.map((name) => profilePath(name)).map((path) => `apparmor_parser -R '${path}' || true\nrm -f '${path}'\n`).join("");
-}
-
-export function profileFileExists(name: string, dir: string = PROFILE_DIR): boolean {
-  return existsSync(join(dir, assertSafeName("profile name", name)));
 }
 
 /** Reads revamp-<appId>.desktop's Exec, returns the executable path relative to <dataDir>/apps/<appId>/current/, or throws. */

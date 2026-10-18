@@ -3,7 +3,20 @@
 import { spawnSync } from "node:child_process";
 import { accessSync, chmodSync, constants, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { installedExecutable, installHelper, PROFILE_DIR, profilePattern, profileText, realSandboxEnv, sandboxProfileNames, type Paths, type SandboxProfileEnv } from "@revamp-app/engine";
+import {
+  assertPrivateDataDir,
+  assertSafeName,
+  installedExecutable,
+  installHelper,
+  PROFILE_DIR,
+  profilePattern,
+  profileText,
+  realSandboxEnv,
+  sandboxProfileNames,
+  testSeam,
+  type Paths,
+  type SandboxProfileEnv,
+} from "@revamp-app/engine";
 
 export type Spawn = (cmd: string, args: string[], input?: string) => { status: number | null; stdout: string; stderr: string };
 export interface PromptEnv {
@@ -14,9 +27,9 @@ export interface PromptEnv {
 const PKEXEC = "/usr/bin/pkexec";
 /**
  * Always the absolute /usr/bin/pkexec, never a PATH lookup. REVAMP_PKEXEC is a test seam that swaps in another program
- * the user runs as themselves (a fake that logs its input): it is no way to root, which only the real pkexec gives.
+ * the user runs as themselves (a fake that logs its input); the single executable ignores it.
  */
-export const pkexecPath = (env: { REVAMP_PKEXEC?: string } = process.env): string => env.REVAMP_PKEXEC || PKEXEC;
+export const pkexecPath = (env: NodeJS.ProcessEnv = process.env): string => testSeam("REVAMP_PKEXEC", env) ?? PKEXEC;
 
 const isExecutable = (path: string): boolean => {
   try {
@@ -37,7 +50,7 @@ export function canPrompt(env: PromptEnv, pkexec: string, exists: (path: string)
  * runs and reads themselves: nothing that root runs through pkexec is read from a file the user can change.
  */
 export function writeHelper(paths: Paths, name: string, script: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(name) || name.includes("..")) throw new Error(`unsafe helper name "${name}"`);
+  assertSafeName("helper name", name);
   const dir = join(paths.state, "sandbox");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${name}.sh`);
@@ -57,7 +70,7 @@ export function runAsRoot(script: string, spawn: Spawn = realSpawn, pkexec: stri
   return { ok: r.status === 0, status: r.status, output: `${r.stdout}${r.stderr}`.trim() };
 }
 
-export const sudoInstructions = (helper: string): string => `Run it with sudo instead:\n  sudo sh ${helper}`;
+export const sudoInstructions = (helper: string): string => `Run it with sudo instead:\n  sudo sh '${helper.replaceAll("'", "'\\''")}'`;
 
 const present = (env: SandboxProfileEnv, name: string) => env.fileExists(join(PROFILE_DIR, name));
 
@@ -76,10 +89,18 @@ export function existingProfileNames(paths: Paths, appId: string, env: SandboxPr
   return [...new Set(sandboxProfileNames(paths, appId, env))].filter((n) => present(env, n));
 }
 
-/** pkexec exits 126 when the prompt is dismissed and 127 when authorization fails. */
-export const cancelled = (r: { status: number | null }): boolean => r.status === 126 || r.status === 127;
-export const pkexecFailed = (r: { status: number | null; output: string }, sudo: string): string =>
-  `pkexec failed (exit ${r.status ?? "none"})${r.output ? `: ${r.output}` : ""}\n${sudo}`;
+/** The profile's `abi <abi/4.0>` needs AppArmor 4.0. */
+export const hasAbi4 = (env: SandboxProfileEnv): boolean => env.fileExists(`${PROFILE_DIR}/abi/4.0`);
+export const OLD_APPARMOR = "This system's AppArmor is older than 4.0, which the profile needs; see docs/electron-sandbox.md.";
+
+/**
+ * What to tell the user after pkexec ran the script and it didn't work. Only 126 means the dialog was dismissed: 127
+ * (not authorized, no agent) and the script's own exit 3 are failures, with pkexec's output (it says why). Both offer sudo.
+ */
+export function rootFailure(r: { status: number | null; output: string }, sudo: () => string, unchanged = "nothing changed"): string {
+  if (r.status === 126) return `The administrator prompt was cancelled; ${unchanged}. ${sudo()}`;
+  return `pkexec failed (exit ${r.status ?? "none"})${r.output ? `: ${r.output}` : ""}\n${sudo()}`;
+}
 
 export interface ProfilePlan {
   name: string;
@@ -91,11 +112,11 @@ export interface ProfilePlan {
   sudo(): string;
 }
 
-/** What `revamp sandbox <app>` and the window's fix button both install. Throws when the app isn't installed. */
+/** What `revamp sandbox <app>` and the window's fix button both install. Throws when the app isn't installed or its data dir is unsafe. */
 export function planProfile(paths: Paths, appId: string, env: SandboxProfileEnv = realSandboxEnv()): ProfilePlan {
   const exe = installedExecutable(paths, appId);
   const name = chooseProfileName(paths, appId, env);
-  const script = installHelper(name, profileText(name, profilePattern(paths.data, appId, exe)));
+  const script = installHelper(name, profileText(name, profilePattern(assertPrivateDataDir(paths.data), appId, exe)));
   // pkexec gets the script on its stdin; the helper file is only for the user's own sudo.
   return { name, file: `${PROFILE_DIR}/${name}`, script, sudo: () => sudoInstructions(writeHelper(paths, name, script)) };
 }
@@ -103,6 +124,5 @@ export function planProfile(paths: Paths, appId: string, env: SandboxProfileEnv 
 /** Runs the plan through pkexec. undefined when it worked, else what to tell the user. */
 export function applyProfile(plan: ProfilePlan, pkexec: string = pkexecPath()): string | undefined {
   const r = runAsRoot(plan.script, undefined, pkexec);
-  if (r.ok) return undefined;
-  return cancelled(r) ? "The administrator prompt was cancelled; nothing changed." : pkexecFailed(r, plan.sudo());
+  return r.ok ? undefined : rootFailure(r, plan.sudo);
 }

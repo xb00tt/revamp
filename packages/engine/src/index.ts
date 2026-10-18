@@ -48,10 +48,9 @@ export {
 } from "./bundle-sources.ts";
 export { listInstalls, rollback, uninstall, type InstalledApp } from "./install.ts";
 export {
+  assertPrivateDataDir,
   installedExecutable,
   installHelper,
-  profileFileExists,
-  profileName,
   profilePattern,
   profileText,
   PROFILE_DIR,
@@ -59,21 +58,11 @@ export {
   removeHelper,
   sandboxProfileNames,
   sandboxProfilePresent,
-  SYSCTL_PATH,
+  testSeam,
   userNamespacesRestricted,
   type SandboxProfileEnv,
 } from "./sandbox-profile.ts";
-export {
-  doctorExitCode,
-  onPath,
-  parseTimerShow,
-  realDoctorEnv,
-  runDoctor,
-  WINDOW_GLIBC,
-  type DoctorCheck,
-  type DoctorEnv,
-  type DoctorSeverity,
-} from "./doctor.ts";
+export { doctorExitCode, onPath, parseTimerShow, realDoctorEnv, runDoctor } from "./doctor.ts";
 export { removeStorageItem, storageUsage, type StorageItem } from "./storage.ts";
-export { revampPaths, type Paths } from "./paths.ts";
+export { assertSafeName, revampPaths, type Paths } from "./paths.ts";
 export { ENGINE_VERSION } from "./version.ts";

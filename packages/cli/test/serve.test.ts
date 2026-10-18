@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,11 @@ import { demoDeb, writeDemoBundle } from "../../engine/test/helpers/demo.ts";
 import { createHandler } from "../src/serve.ts";
 
 const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
+// For the whole file, and the serve it spawns: no profile lookup reads the machine's /etc/apparmor.d, no pkexec is the real
+// one, and the system doesn't restrict user namespaces unless a test says so.
+process.env.REVAMP_PROFILE_DIR = mkdtempSync(join(tmpdir(), "revamp-serve-profiles-"));
+process.env.REVAMP_PKEXEC = "/nonexistent/pkexec";
+process.env.REVAMP_SYSCTL_PATH = "/nonexistent/sysctl";
 /** A home with an empty sources.json: serve seeds the default source only while the file doesn't exist, and tests stay offline. */
 function freshHome(prefix: string): string {
   const home = mkdtempSync(join(tmpdir(), prefix));
@@ -178,17 +183,25 @@ async function withEnv(vars: Record<string, string | undefined>, work: () => Pro
   }
 }
 
-/** The demo app installed, an empty profile dir standing in for /etc/apparmor.d, and a fake pkexec that logs its arguments and input. */
+/**
+ * The demo app installed, a profile dir standing in for /etc/apparmor.d (only abi/4.0 in it), a sysctl file saying the
+ * system restricts user namespaces, and a fake pkexec that logs its arguments and input.
+ */
 async function sandboxSetup(t: { after(fn: () => void): void }) {
   const s = await setup();
   t.after(s.close);
   assert.equal((await s.call("job.patch", { appId: "demo", enable: ["Say goodbye"] })).result.result.installed, true);
   const profiles = mkdtempSync(join(tmpdir(), "revamp-serve-profiles-"));
+  mkdirSync(join(profiles, "abi"));
+  writeFileSync(join(profiles, "abi/4.0"), "");
+  const sysctl = join(s.root, "restrict");
+  writeFileSync(sysctl, "1\n");
   const log = join(s.root, "pkexec.log");
   const pkexec = join(s.root, "pkexec");
   writeFileSync(pkexec, `#!/bin/sh\necho "$@" >> '${log}'\ncat >> '${log}'\nexit 0\n`);
   chmodSync(pkexec, 0o755);
-  return { ...s, profiles, log, pkexec, helper: join(s.paths.state, "sandbox/revamp-demo.sh") };
+  const restricted = { REVAMP_PROFILE_DIR: profiles, REVAMP_SYSCTL_PATH: sysctl };
+  return { ...s, profiles, sysctl, restricted, log, pkexec, helper: join(s.paths.state, "sandbox/revamp-demo.sh") };
 }
 
 test("doctor.run answers with the checks and the exit code", async (t) => {
@@ -199,15 +212,29 @@ test("doctor.run answers with the checks and the exit code", async (t) => {
   assert.ok([0, 1, 2].includes(r.exitCode));
 });
 
-test("sandbox.status lists each installed app with its profile name and whether the profile is there", async (t) => {
+test("sandbox.status lists each installed app with its profile name, whether the profile is there, and what root would run", async (t) => {
   const s = await sandboxSetup(t);
-  await withEnv({ REVAMP_PROFILE_DIR: s.profiles, REVAMP_PKEXEC: "/nonexistent/pkexec" }, async () => {
+  await withEnv(s.restricted, async () => {
     const status = (await s.call("sandbox.status")).result;
-    assert.equal(typeof status.restricted, "boolean");
+    assert.equal(status.restricted, true);
     assert.equal(status.canPrompt, false, "no pkexec");
-    assert.deepEqual(status.apps, [{ appId: "demo", profile: "revamp-demo", installed: false }]);
+    const [demo] = status.apps;
+    assert.deepEqual(status.apps, [{ appId: "demo", profile: "revamp-demo", installed: false, script: demo.script }]);
+    assert.match(demo.script, /^#!\/bin\/sh\n/);
+    assert.ok(demo.script.includes(`profile revamp-demo "${s.paths.data}/apps/demo/*/`), demo.script);
+    assert.equal(existsSync(s.helper), false, "showing the script writes no helper file");
     writeFileSync(join(s.profiles, "revamp-demo"), `"${s.paths.data}/apps/demo/*/demo" {}\n`); // a profile with this user's path in it
-    assert.equal((await s.call("sandbox.status")).result.apps[0].installed, true);
+    assert.deepEqual((await s.call("sandbox.status")).result.apps, [{ appId: "demo", profile: "revamp-demo", installed: true }]);
+  });
+  assert.equal((await s.call("sandbox.status")).result.restricted, false); // the file-wide default
+});
+
+test("sandbox.status leaves out the script when it can't plan one, and says why in the log", async (t) => {
+  const s = await sandboxSetup(t);
+  rmSync(join(s.paths.applications, "revamp-demo.desktop"));
+  await withEnv(s.restricted, async () => {
+    assert.deepEqual((await s.call("sandbox.status")).result.apps, [{ appId: "demo", profile: "revamp-demo", installed: false }]);
+    assert.match(s.logs.join("\n"), /sandbox\.status: no script for demo: demo is not installed/);
   });
 });
 
@@ -217,17 +244,16 @@ test("sandbox.status skips an app directory it can't name instead of failing for
   mkdirSync(join(odd, "1.0.0"), { recursive: true });
   writeFileSync(join(odd, "1.0.0/revamp.json"), '{"installedAt":"2026-01-01T00:00:00.000Z"}');
   symlinkSync("1.0.0", join(odd, "current"));
-  await withEnv({ REVAMP_PROFILE_DIR: s.profiles, REVAMP_PKEXEC: "/nonexistent/pkexec" }, async () => {
+  await withEnv(s.restricted, async () => {
     const status = (await s.call("sandbox.status")).result;
-    assert.deepEqual(status.apps, [{ appId: "demo", profile: "revamp-demo", installed: false }]);
+    assert.deepEqual(status.apps.map((a: { appId: string }) => a.appId), ["demo"]);
     assert.match(s.logs.join("\n"), /my app.*unsafe|unsafe.*my app/);
   });
 });
 
 test("sandbox.fix needs an installed app", async (t) => {
-  const s = await setup();
-  t.after(s.close);
-  await withEnv({ REVAMP_PROFILE_DIR: mkdtempSync(join(tmpdir(), "revamp-serve-profiles-")), REVAMP_PKEXEC: "/nonexistent/pkexec" }, async () => {
+  const s = await sandboxSetup(t);
+  await withEnv(s.restricted, async () => {
     const r = await s.call("sandbox.fix", { appId: "ghost" });
     assert.equal(r.error?.code, -32000);
     assert.match(r.error!.message, /is not installed/);
@@ -235,19 +261,32 @@ test("sandbox.fix needs an installed app", async (t) => {
   });
 });
 
-test("sandbox.fix without a prompt writes the helper for sudo and throws its instructions", async (t) => {
+test("sandbox.fix has nothing to do where user namespaces aren't restricted, and refuses an AppArmor older than 4.0", async (t) => {
   const s = await sandboxSetup(t);
-  await withEnv({ REVAMP_PROFILE_DIR: s.profiles, REVAMP_PKEXEC: "/nonexistent/pkexec", DISPLAY: ":0" }, async () => {
+  await withEnv({ REVAMP_PROFILE_DIR: s.profiles, REVAMP_PKEXEC: s.pkexec, DISPLAY: ":0" }, async () => {
     const r = await s.call("sandbox.fix", { appId: "demo" });
     assert.equal(r.error?.code, -32000);
-    assert.equal(r.error!.message, `Run it with sudo instead:\n  sudo sh ${s.helper}`);
+    assert.match(r.error!.message, /^nothing to do/);
+    rmSync(join(s.profiles, "abi/4.0"));
+    process.env.REVAMP_SYSCTL_PATH = s.sysctl; // withEnv puts the file-wide value back
+    assert.equal((await s.call("sandbox.fix", { appId: "demo" })).error?.message, "This system's AppArmor is older than 4.0, which the profile needs; see docs/electron-sandbox.md.");
+  });
+  assert.equal(existsSync(s.log), false, "no prompt either way");
+});
+
+test("sandbox.fix without a prompt writes the helper for sudo and throws its instructions", async (t) => {
+  const s = await sandboxSetup(t);
+  await withEnv({ ...s.restricted, DISPLAY: ":0" }, async () => {
+    const r = await s.call("sandbox.fix", { appId: "demo" });
+    assert.equal(r.error?.code, -32000);
+    assert.equal(r.error!.message, `Run it with sudo instead:\n  sudo sh '${s.helper}'`);
     assert.match(readFileSync(s.helper, "utf8"), /apparmor_parser -r/);
   });
 });
 
 test("sandbox.fix pipes the script to pkexec's shell; a dismissed prompt and other failures are errors", async (t) => {
   const s = await sandboxSetup(t);
-  await withEnv({ REVAMP_PROFILE_DIR: s.profiles, REVAMP_PKEXEC: s.pkexec, DISPLAY: ":0" }, async () => {
+  await withEnv({ ...s.restricted, REVAMP_PKEXEC: s.pkexec, DISPLAY: ":0" }, async () => {
     assert.equal((await s.call("sandbox.status")).result.canPrompt, true);
     const ok = await s.call("sandbox.fix", { appId: "demo" });
     assert.deepEqual(ok.result, { ok: true, profile: "revamp-demo" });
@@ -255,7 +294,11 @@ test("sandbox.fix pipes the script to pkexec's shell; a dismissed prompt and oth
     assert.match(logged, /^\/bin\/sh -s\n/);
     assert.match(logged, /apparmor_parser -r '\/etc\/apparmor\.d\/revamp-demo'/);
     assert.equal(existsSync(s.helper), false, "nothing the user can change is left for root to run");
-    for (const [exit, message] of [[126, /^The administrator prompt was cancelled; nothing changed\.$/], [3, /^pkexec failed \(exit 3\)\nRun it with sudo instead:/]] as const) {
+    for (const [exit, message] of [
+      [126, /^The administrator prompt was cancelled; nothing changed\. Run it with sudo instead:\n {2}sudo sh '/],
+      [127, /^pkexec failed \(exit 127\)\nRun it with sudo instead:/],
+      [3, /^pkexec failed \(exit 3\)\nRun it with sudo instead:/],
+    ] as const) {
       writeFileSync(s.pkexec, `#!/bin/sh\ncat > /dev/null\nexit ${exit}\n`);
       const r = await s.call("sandbox.fix", { appId: "demo" });
       assert.equal(r.error?.code, -32000);
