@@ -53,6 +53,20 @@ export function releaseNote(c: AppCheck): string {
   return plain(lead ? lead + dryRun : dryRun[0].toUpperCase() + dryRun.slice(1));
 }
 
+/** `sandbox.status`: whether the system restricts user namespaces and which installed apps have their AppArmor profile. */
+export interface SandboxStatus {
+  restricted: boolean;
+  canPrompt: boolean;
+  apps: Array<{ appId: string; profile: string; installed: boolean }>;
+}
+
+/** The banner text when installed apps need a profile, else null. */
+export function sandboxNote(status: SandboxStatus): string | null {
+  const missing = status.apps.filter((a) => !a.installed).map((a) => a.appId);
+  if (!status.restricted || missing.length === 0) return null;
+  return `This system restricts user namespaces, so Revamped apps can't start their sandbox. Revamp can install an AppArmor profile for ${missing.join(", ")} (one administrator prompt each).`;
+}
+
 /** Bundle-supplied text for the screen: no bidi overrides, zero-width or control characters (newline and tab stay). */
 export const plain = (text = "") => text.replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2069\uFEFF]/g, "");
 

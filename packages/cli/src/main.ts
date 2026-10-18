@@ -11,16 +11,12 @@ import {
   checkUpdates,
   DEFAULT_SOURCE,
   doctorExitCode,
-  installedExecutable,
-  installHelper,
   listInstalls,
   listPatches,
   loadSources,
   onPath,
   patchApp,
   prepareSource,
-  profilePattern,
-  profileText,
   PROFILE_DIR,
   realDoctorEnv,
   realSandboxEnv,
@@ -38,7 +34,7 @@ import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandida
 import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
-import { canPrompt, chooseProfileName, existingProfileNames, pkexecPath, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
+import { applyProfile, cancelled, canPrompt, existingProfileNames, pkexecFailed, pkexecPath, planProfile, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
 import { serve } from "./serve.ts";
 import { installCli, installWindow } from "./install.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
@@ -133,38 +129,29 @@ const PKEXEC = pkexecPath(process.env);
 const canAsk = () => canPrompt(process.env, PKEXEC);
 const asRoot = (script: string) => runAsRoot(script, undefined, PKEXEC);
 
-/** pkexec exits 126 when the prompt is dismissed and 127 when authorization fails. */
-const cancelled = (r: { status: number | null }) => r.status === 126 || r.status === 127;
-const pkexecFailed = (r: { status: number | null; output: string }, sudo: string) =>
-  `pkexec failed (exit ${r.status ?? "none"})${r.output ? `: ${r.output}` : ""}\n${sudo}`;
 /** What root is about to run, shown before anything asks for it. */
 const showScript = (script: string) => print(`This script runs with administrator rights:\n\n${script.trimEnd()}\n`);
 
 async function sandbox(paths: Paths, id: string, yes: boolean): Promise<number> {
-  const exe = installedExecutable(paths, id);
-  const name = chooseProfileName(paths, id, realSandboxEnv());
-  const script = installHelper(name, profileText(name, profilePattern(paths.data, id, exe)));
-  const file = `${PROFILE_DIR}/${name}`;
-  // pkexec gets the script on its stdin; this file is only for the user's own sudo, written when that is the way out.
-  const sudo = () => sudoInstructions(writeHelper(paths, name, script));
+  const plan = planProfile(paths, id);
   if (!userNamespacesRestricted()) print(`This system doesn't restrict user namespaces, so Revamped ${id} starts without a profile. Installing one anyway is harmless.`);
-  showScript(script);
-  print(`This writes ${file} and runs: apparmor_parser -r ${file}`);
+  showScript(plan.script);
+  print(`This writes ${plan.file} and runs: apparmor_parser -r ${plan.file}`);
   if (!canAsk()) {
-    print(sudo());
+    print(plan.sudo());
     return 1;
   }
   if (!yes && !(await confirm("Write it with administrator rights?"))) {
-    print(`Nothing changed. ${sudo()}`);
+    print(`Nothing changed. ${plan.sudo()}`);
     return 1;
   }
-  const r = asRoot(script);
-  if (r.ok) {
-    print(`Installed and loaded ${file}. Start ${id} (Revamped) again.`);
-    return 0;
+  const failure = applyProfile(plan, PKEXEC);
+  if (failure) {
+    print(failure);
+    return 1;
   }
-  print(cancelled(r) ? "The administrator prompt was cancelled; nothing changed." : pkexecFailed(r, sudo()));
-  return 1;
+  print(`Installed and loaded ${plan.file}. Start ${id} (Revamped) again.`);
+  return 0;
 }
 
 /** After an uninstall: offers to remove this user's sandbox profile(s) for the app. Never fails the uninstall. */

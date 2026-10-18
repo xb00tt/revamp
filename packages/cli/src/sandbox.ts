@@ -3,7 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { accessSync, chmodSync, constants, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PROFILE_DIR, sandboxProfileNames, type Paths, type SandboxProfileEnv } from "@revamp-app/engine";
+import { installedExecutable, installHelper, PROFILE_DIR, profilePattern, profileText, realSandboxEnv, sandboxProfileNames, type Paths, type SandboxProfileEnv } from "@revamp-app/engine";
 
 export type Spawn = (cmd: string, args: string[], input?: string) => { status: number | null; stdout: string; stderr: string };
 export interface PromptEnv {
@@ -74,4 +74,35 @@ export function chooseProfileName(paths: Paths, appId: string, env: SandboxProfi
 /** This user's profiles for the app that are in /etc/apparmor.d, once each. */
 export function existingProfileNames(paths: Paths, appId: string, env: SandboxProfileEnv): string[] {
   return [...new Set(sandboxProfileNames(paths, appId, env))].filter((n) => present(env, n));
+}
+
+/** pkexec exits 126 when the prompt is dismissed and 127 when authorization fails. */
+export const cancelled = (r: { status: number | null }): boolean => r.status === 126 || r.status === 127;
+export const pkexecFailed = (r: { status: number | null; output: string }, sudo: string): string =>
+  `pkexec failed (exit ${r.status ?? "none"})${r.output ? `: ${r.output}` : ""}\n${sudo}`;
+
+export interface ProfilePlan {
+  name: string;
+  /** Where root writes it. */
+  file: string;
+  /** What root runs, from the engine's installHelper. */
+  script: string;
+  /** Writes the helper file for the user's own sudo and returns the instructions; only call it when that is the way out. */
+  sudo(): string;
+}
+
+/** What `revamp sandbox <app>` and the window's fix button both install. Throws when the app isn't installed. */
+export function planProfile(paths: Paths, appId: string, env: SandboxProfileEnv = realSandboxEnv()): ProfilePlan {
+  const exe = installedExecutable(paths, appId);
+  const name = chooseProfileName(paths, appId, env);
+  const script = installHelper(name, profileText(name, profilePattern(paths.data, appId, exe)));
+  // pkexec gets the script on its stdin; the helper file is only for the user's own sudo.
+  return { name, file: `${PROFILE_DIR}/${name}`, script, sudo: () => sudoInstructions(writeHelper(paths, name, script)) };
+}
+
+/** Runs the plan through pkexec. undefined when it worked, else what to tell the user. */
+export function applyProfile(plan: ProfilePlan, pkexec: string = pkexecPath(), spawn?: Spawn): string | undefined {
+  const r = runAsRoot(plan.script, spawn, pkexec);
+  if (r.ok) return undefined;
+  return cancelled(r) ? "The administrator prompt was cancelled; nothing changed." : pkexecFailed(r, plan.sudo());
 }

@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -164,6 +164,91 @@ test("adding the default source by hand on a fresh home is the seed: one fetch, 
   assert.equal(added.result.location, "xb00tt/revamp-patches");
   assert.deepEqual(await s.locations(), ["xb00tt/revamp-patches"]);
   assert.deepEqual(s.logs, []);
+});
+
+/** Runs `work` with these process env variables set (undefined removes one), then puts them back. */
+async function withEnv(vars: Record<string, string | undefined>, work: () => Promise<void>) {
+  const put = (v: Record<string, string | undefined>) => Object.entries(v).forEach(([k, x]) => (x === undefined ? delete process.env[k] : (process.env[k] = x)));
+  const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  put(vars);
+  try {
+    await work();
+  } finally {
+    put(saved);
+  }
+}
+
+/** The demo app installed, an empty profile dir standing in for /etc/apparmor.d, and a fake pkexec that logs and exits with `exit`. */
+async function sandboxSetup(t: { after(fn: () => void): void }, exit = 0) {
+  const s = await setup();
+  t.after(s.close);
+  assert.equal((await s.call("job.patch", { appId: "demo", enable: ["Say goodbye"] })).result.result.installed, true);
+  const profiles = mkdtempSync(join(tmpdir(), "revamp-serve-profiles-"));
+  const log = join(s.root, "pkexec.log");
+  const pkexec = join(s.root, "pkexec");
+  writeFileSync(pkexec, `#!/bin/sh\necho "$@" >> '${log}'\ncat >> '${log}'\nexit ${exit}\n`);
+  chmodSync(pkexec, 0o755);
+  return { ...s, profiles, log, pkexec, helper: join(s.paths.state, "sandbox/revamp-demo.sh") };
+}
+
+test("doctor.run answers with the checks and the exit code", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  const r = (await s.call("doctor.run")).result;
+  assert.ok(r.checks.some((c: { id: string }) => c.id === "platform"));
+  assert.ok([0, 1, 2].includes(r.exitCode));
+});
+
+test("sandbox.status lists each installed app with its profile name and whether the profile is there", async (t) => {
+  const s = await sandboxSetup(t);
+  await withEnv({ REVAMP_PROFILE_DIR: s.profiles, REVAMP_PKEXEC: "/nonexistent/pkexec" }, async () => {
+    const status = (await s.call("sandbox.status")).result;
+    assert.equal(typeof status.restricted, "boolean");
+    assert.equal(status.canPrompt, false, "no pkexec");
+    assert.deepEqual(status.apps, [{ appId: "demo", profile: "revamp-demo", installed: false }]);
+    writeFileSync(join(s.profiles, "revamp-demo"), `"${s.paths.data}/apps/demo/*/demo" {}\n`); // a profile with this user's path in it
+    assert.equal((await s.call("sandbox.status")).result.apps[0].installed, true);
+  });
+});
+
+test("sandbox.fix needs an installed app", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  await withEnv({ REVAMP_PROFILE_DIR: mkdtempSync(join(tmpdir(), "revamp-serve-profiles-")), REVAMP_PKEXEC: "/nonexistent/pkexec" }, async () => {
+    const r = await s.call("sandbox.fix", { appId: "ghost" });
+    assert.equal(r.error?.code, -32000);
+    assert.match(r.error!.message, /is not installed/);
+    assert.equal((await s.call("sandbox.fix", {})).error?.code, -32602);
+  });
+});
+
+test("sandbox.fix without a prompt writes the helper for sudo and throws its instructions", async (t) => {
+  const s = await sandboxSetup(t);
+  await withEnv({ REVAMP_PROFILE_DIR: s.profiles, REVAMP_PKEXEC: "/nonexistent/pkexec", DISPLAY: ":0" }, async () => {
+    const r = await s.call("sandbox.fix", { appId: "demo" });
+    assert.equal(r.error?.code, -32000);
+    assert.equal(r.error!.message, `Run it with sudo instead:\n  sudo sh ${s.helper}`);
+    assert.match(readFileSync(s.helper, "utf8"), /apparmor_parser -r/);
+  });
+});
+
+test("sandbox.fix pipes the script to pkexec's shell; a dismissed prompt and other failures are errors", async (t) => {
+  const s = await sandboxSetup(t);
+  await withEnv({ REVAMP_PROFILE_DIR: s.profiles, REVAMP_PKEXEC: s.pkexec, DISPLAY: ":0" }, async () => {
+    assert.equal((await s.call("sandbox.status")).result.canPrompt, true);
+    const ok = await s.call("sandbox.fix", { appId: "demo" });
+    assert.deepEqual(ok.result, { ok: true, profile: "revamp-demo" });
+    const logged = readFileSync(s.log, "utf8");
+    assert.match(logged, /^\/bin\/sh -s\n/);
+    assert.match(logged, /apparmor_parser -r '\/etc\/apparmor\.d\/revamp-demo'/);
+    assert.equal(existsSync(s.helper), false, "nothing the user can change is left for root to run");
+    for (const [exit, message] of [[126, /^The administrator prompt was cancelled; nothing changed\.$/], [3, /^pkexec failed \(exit 3\)\nRun it with sudo instead:/]] as const) {
+      writeFileSync(s.pkexec, `#!/bin/sh\ncat > /dev/null\nexit ${exit}\n`);
+      const r = await s.call("sandbox.fix", { appId: "demo" });
+      assert.equal(r.error?.code, -32000);
+      assert.match(r.error!.message, message);
+    }
+  });
 });
 
 test("revamp serve speaks over stdin and stdout and exits when stdin closes", async () => {

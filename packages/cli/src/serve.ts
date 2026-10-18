@@ -6,6 +6,7 @@ import {
   checkUpdates,
   DEFAULT_SOURCE,
   describe,
+  doctorExitCode,
   listInstalls,
   listPatches,
   loadLastCheck,
@@ -14,12 +15,17 @@ import {
   loadSources,
   patchApp,
   prepareSource,
+  realDoctorEnv,
+  realSandboxEnv,
   refreshSources,
   removeSource,
   removeStorageItem,
   rollback,
+  runDoctor,
+  sandboxProfilePresent,
   skipVersion,
   storageUsage,
+  userNamespacesRestricted,
   installedPatchNames,
   newPatchesToAsk,
   type BundleDescription,
@@ -29,6 +35,7 @@ import {
 } from "@revamp-app/engine";
 import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { formatPatchResult } from "./format.ts";
+import { applyProfile, canPrompt, chooseProfileName, pkexecPath, planProfile } from "./sandbox.ts";
 
 export interface ServeOptions extends UpdateOptions {
   log: (line: string) => void;
@@ -163,6 +170,26 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
     },
     "sources.remove": (p) => removeSource(o.paths, str(p, "location")),
     "sources.refresh": () => refreshSources(o.paths, o),
+    "doctor.run": () => {
+      const checks = runDoctor(o.paths, realDoctorEnv());
+      return { checks, exitCode: doctorExitCode(checks) };
+    },
+    "sandbox.status": () => {
+      const env = realSandboxEnv();
+      const apps = listInstalls(o.paths)
+        .filter((a) => a.current)
+        .map(({ appId }) => ({ appId, profile: chooseProfileName(o.paths, appId, env), installed: sandboxProfilePresent(o.paths, appId, env) }));
+      return { restricted: userNamespacesRestricted(), canPrompt: canPrompt(process.env, pkexecPath(process.env)), apps };
+    },
+    // The administrator dialog is the confirmation, so nothing asks first. ponytail: pkexec runs synchronously, so serve answers nothing while the dialog is open.
+    "sandbox.fix": (p) => {
+      const plan = planProfile(o.paths, str(p, "appId"));
+      const pkexec = pkexecPath(process.env);
+      if (!canPrompt(process.env, pkexec)) throw new Error(plan.sudo());
+      const failure = applyProfile(plan, pkexec);
+      if (failure) throw new Error(failure);
+      return { ok: true, profile: plan.name };
+    },
     "storage.list": () => storageUsage(o.paths),
     "storage.remove": (p) => {
       removeStorageItem(o.paths, str(p, "id"));
