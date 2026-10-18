@@ -159,7 +159,9 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
   const untested = !info;
   const asset = assertSafeName("asset", fill(app.release.asset, version));
   const tag = fill(app.release.tag, version);
-  const resolved = resolveSelection(app, patchesForApp(desc.patches, app.id), loadSelection(paths, app.id), {
+  const patches = patchesForApp(desc.patches, app.id);
+  const saved = loadSelection(paths, app.id);
+  const resolved = resolveSelection(app, patches, saved, {
     enable: o.enable,
     disable: o.disable,
     options: o.options,
@@ -167,7 +169,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
   const selection = resolved.selection;
   let runSelection: Selection | undefined;
   if (o.confirmNewPatches) {
-    const ask = newPatchesToAsk(app, patchesForApp(desc.patches, app.id), version, installedPatchNames(paths, app.id), loadSelection(paths, app.id), o, o.force ?? false);
+    const ask = newPatchesToAsk(app, patches, version, installedPatchNames(paths, app.id), saved, o, o.force ?? false);
     if (ask.length) {
       const names = ask.map((p) => p.name);
       const answer = await o.confirmNewPatches({
