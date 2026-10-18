@@ -154,6 +154,8 @@ const HEADER = "#!/bin/sh\nset -eu\numask 022\n";
 function profilePath(name: string): string {
   assertSafeName("profile name", name);
   if (!/^revamp-[A-Za-z0-9._+-]+$/.test(name)) throw new Error(`profile name must start with "revamp-": ${name}`);
+  // The scripts write and delete `<path>.new`: for app id "hydra.new" that is revamp-hydra's own profile file.
+  if (name.endsWith(".new")) throw new Error(`profile name must not end in ".new": ${name}`);
   return `${PROFILE_DIR}/${name}`;
 }
 

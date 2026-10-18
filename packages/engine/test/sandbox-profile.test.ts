@@ -117,6 +117,18 @@ test("installHelper refuses a profile that could end the heredoc early or a name
   assert.throws(() => removeHelper("revamp-"), /profile name must start with "revamp-"/);
 });
 
+test("the helpers refuse a name ending in .new: its temp file would be another app's profile", () => {
+  // app id "hydra.new" is a valid name, and its profile revamp-hydra.new is the temp file of revamp-hydra's
+  const rule = /profile name must not end in "\.new": revamp-hydra\.new/;
+  assert.throws(() => installHelper("revamp-hydra.new", "x"), rule);
+  assert.throws(() => removeHelper("revamp-hydra.new"), rule);
+  assert.throws(() => removeHelper(["revamp-hydra", "revamp-hydra.new"]), rule);
+  // other dots, and ".new" inside a name, are fine
+  assert.match(installHelper("revamp-hydra.new2", "x"), /'\/etc\/apparmor\.d\/revamp-hydra\.new2\.new'/);
+  assert.match(removeHelper("revamp-my.new-app"), /'\/etc\/apparmor\.d\/revamp-my\.new-app'/);
+  assert.match(removeHelper("revamp-hydra-u1000"), /'\/etc\/apparmor\.d\/revamp-hydra-u1000'/);
+});
+
 test("removeHelper unloads, then removes the file", () => {
   assert.equal(
     removeHelper("revamp-hydra"),
