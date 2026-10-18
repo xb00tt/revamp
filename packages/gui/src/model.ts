@@ -57,14 +57,15 @@ export function releaseNote(c: AppCheck): string {
 export interface SandboxStatus {
   restricted: boolean;
   canPrompt: boolean;
-  apps: Array<{ appId: string; profile: string; installed: boolean }>;
+  /** For an app without its profile: the script root would run (absent when serve couldn't plan it). */
+  apps: Array<{ appId: string; profile: string; installed: boolean; script?: string }>;
 }
 
 /** The banner text when installed apps need a profile, else null. */
 export function sandboxNote(status: SandboxStatus): string | null {
   const missing = status.apps.filter((a) => !a.installed).map((a) => a.appId);
   if (!status.restricted || missing.length === 0) return null;
-  return `This system restricts user namespaces, so Revamped apps can't start their sandbox. Revamp can install an AppArmor profile for ${missing.join(", ")} (one administrator prompt each).`;
+  return `This system restricts user namespaces, so Revamped apps can't start their sandbox. Revamp can install an AppArmor profile for ${missing.join(", ")}${status.canPrompt ? " (one administrator prompt each)" : ""}.`;
 }
 
 /** What root does for this app, shown before the system's password prompt. */

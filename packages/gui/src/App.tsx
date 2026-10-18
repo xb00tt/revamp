@@ -107,7 +107,18 @@ export function App({ rpc }: { rpc: Rpc }) {
           {banner && (
             <div className="banner warning">
               {plain(banner.note)}
-              {banner.canPrompt && banner.lacking.map((a) => <p key={a.appId} className="muted">{plain(sandboxDetail(a))}</p>)}
+              {banner.canPrompt &&
+                banner.lacking.map((a) => (
+                  <div key={a.appId}>
+                    <p className="muted">{plain(sandboxDetail(a))}</p>
+                    {a.script && (
+                      <details>
+                        <summary>What root will run</summary>
+                        <pre className="report">{plain(a.script)}</pre>
+                      </details>
+                    )}
+                  </div>
+                ))}
               <div className="row-actions">
                 {banner.lacking.map((a) =>
                   banner.canPrompt ? (

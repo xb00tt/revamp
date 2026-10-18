@@ -190,7 +190,10 @@ test("the sandbox note appears only when the system restricts user namespaces an
     sandboxNote({ restricted: true, canPrompt: true, apps: apps(false, true) }),
     "This system restricts user namespaces, so Revamped apps can't start their sandbox. Revamp can install an AppArmor profile for hydra (one administrator prompt each).",
   );
-  assert.match(sandboxNote({ restricted: true, canPrompt: false, apps: apps(false, false) })!, /profile for hydra, heroic \(one/);
+  assert.equal(
+    sandboxNote({ restricted: true, canPrompt: false, apps: apps(false, false) }),
+    "This system restricts user namespaces, so Revamped apps can't start their sandbox. Revamp can install an AppArmor profile for hydra, heroic.",
+  ); // no prompt here: the banner says to run revamp sandbox in a terminal
 });
 
 test("the sandbox detail spells out the file root writes before the system asks for a password", () => {
