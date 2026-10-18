@@ -29,6 +29,8 @@ const trustedRoot = (t: { after(fn: () => void): void }, value: string | undefin
 };
 
 const tmp = () => mkdtempSync(join(tmpdir(), "revamp-sbx-"));
+/** assert.throws' validator for an error whose message holds `text` (a plain substring: paths hold regex characters, and the walk names real paths). */
+const mentions = (text: string) => (e: unknown) => e instanceof Error && e.message.includes(text);
 const DATA = "/home/a/.local/share/revamp";
 
 test("userNamespacesRestricted reads the sysctl file", () => {
@@ -226,11 +228,11 @@ test("assertPrivateDataDir refuses a dir another user could write or recreate", 
   const data = join(open, "revamp");
   mkdirSync(data, { mode: 0o755 });
   chmodSync(data, 0o755);
-  assert.throws(() => assertPrivateDataDir(data), new RegExp(`^Error: unsafe data path ${data}: ${open} is writable by other users$`));
+  assert.throws(() => assertPrivateDataDir(data), mentions(`unsafe data path ${data}: ${realpathSync(open)} is writable by other users`));
   assert.throws(() => assertPrivateDataDir(join(open, "missing")), /is writable by other users/);
   chmodSync(open, 0o700);
   chmodSync(data, 0o777);
-  assert.throws(() => assertPrivateDataDir(data), new RegExp(`${data} is writable by other users`)); // the dir itself
+  assert.throws(() => assertPrivateDataDir(data), mentions(`${realpathSync(data)} is writable by other users`)); // the dir itself
   chmodSync(data, 0o770);
   assert.throws(() => assertPrivateDataDir(data, process.getuid!(), -1), /is writable by other users/); // a group that isn't the user's own
   // owned by another user (seen as one by passing another uid)
@@ -244,9 +246,9 @@ test("assertPrivateDataDir refuses a dir under a sticky world-writable one: it g
   const data = join(sticky, "revamp");
   mkdirSync(data, { mode: 0o700 });
   trustedRoot(t, undefined);
-  assert.throws(() => assertPrivateDataDir(data), new RegExp(`^Error: unsafe data path ${data}: ${sticky} is writable by other users$`));
+  assert.throws(() => assertPrivateDataDir(data), mentions(`unsafe data path ${data}: ${realpathSync(sticky)} is writable by other users`));
   // the system's /tmp itself, when that is where the temp dirs are
-  if ((statSync(tmpdir()).mode & 0o1002) === 0o1002) assert.throws(() => assertPrivateDataDir(tmp()), new RegExp(`: ${tmpdir()} is writable by other users$`));
+  if ((statSync(tmpdir()).mode & 0o1002) === 0o1002) assert.throws(() => assertPrivateDataDir(tmp()), mentions(`: ${realpathSync(tmpdir())} is writable by other users`));
 });
 
 test("REVAMP_TRUSTED_ROOT (a test seam) stops the walk: that dir and the ones above it aren't judged", (t) => {
@@ -257,7 +259,7 @@ test("REVAMP_TRUSTED_ROOT (a test seam) stops the walk: that dir and the ones ab
   trustedRoot(t, open);
   assert.equal(assertPrivateDataDir(data), realpathSync(data));
   chmodSync(data, 0o777);
-  assert.throws(() => assertPrivateDataDir(data), new RegExp(`: ${data} is writable by other users$`)); // below it, still judged
+  assert.throws(() => assertPrivateDataDir(data), mentions(`: ${realpathSync(data)} is writable by other users`)); // below it, still judged
   chmodSync(data, 0o700);
   delete process.env.REVAMP_TRUSTED_ROOT;
   assert.throws(() => assertPrivateDataDir(data), /is writable by other users/);
