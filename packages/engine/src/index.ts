@@ -55,10 +55,13 @@ export {
   profilePattern,
   profileText,
   PROFILE_DIR,
+  realSandboxEnv,
   removeHelper,
+  sandboxProfileNames,
   sandboxProfilePresent,
   SYSCTL_PATH,
   userNamespacesRestricted,
+  type SandboxProfileEnv,
 } from "./sandbox-profile.ts";
 export {
   doctorExitCode,

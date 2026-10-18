@@ -10,23 +10,31 @@ import {
   checkMessage,
   checkUpdates,
   DEFAULT_SOURCE,
+  installedExecutable,
+  installHelper,
   listInstalls,
   listPatches,
   loadSources,
   onPath,
   patchApp,
   prepareSource,
+  profilePattern,
+  profileText,
+  PROFILE_DIR,
+  realSandboxEnv,
   removeSource,
   revampPaths,
   rollback,
   uninstall,
   updateApp,
+  userNamespacesRestricted,
   type Paths,
 } from "@revamp-app/engine";
 import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandidate, formatSources, printable } from "./format.ts";
 import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
+import { canPrompt, chooseProfileName, existingProfileNames, removeAllHelper, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
 import { serve } from "./serve.ts";
 import { installCli, installWindow } from "./install.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
@@ -49,6 +57,8 @@ const USAGE = `Usage:
   revamp update [<app>] [--force] [--yes]
   revamp timer enable|disable
   revamp self-install   install this binary (and the window beside it) for your user
+  revamp doctor         check this machine: libraries, the sandbox, PATH, the timer, sources
+  revamp sandbox <app>  install the AppArmor profile a Revamped app needs on Ubuntu 24.04+ (one administrator prompt)
   revamp serve        JSON-RPC 2.0 on stdin/stdout, for the GUI
 
 Without --bundle, an app's bundle comes from the first source that has it.`;
@@ -92,6 +102,57 @@ async function sources(paths: Paths, sub: string | undefined, location: string |
       printError(`Unknown sources command "${sub ?? ""}".\n${USAGE}`);
       return 1;
   }
+}
+
+/** pkexec exits 126 when the prompt is dismissed and 127 when authorization fails. */
+const cancelled = (r: { status: number | null }) => r.status === 126 || r.status === 127;
+const pkexecFailed = (r: { status: number | null; output: string }, helper: string) =>
+  `pkexec failed (exit ${r.status ?? "none"})${r.output ? `: ${r.output}` : ""}\n${sudoInstructions(helper)}`;
+
+async function sandbox(paths: Paths, id: string, yes: boolean): Promise<number> {
+  const exe = installedExecutable(paths, id);
+  const name = chooseProfileName(paths, id, realSandboxEnv());
+  const text = profileText(name, profilePattern(paths.data, id, exe));
+  const helper = writeHelper(paths, name, installHelper(name, text));
+  const file = `${PROFILE_DIR}/${name}`;
+  if (!userNamespacesRestricted()) print(`This system doesn't restrict user namespaces, so Revamped ${id} starts without a profile. Installing one anyway is harmless.`);
+  print(text);
+  print(`This writes ${file} and runs: apparmor_parser -r ${file}  (helper: ${helper})`);
+  if (!canPrompt(process.env)) {
+    print(sudoInstructions(helper));
+    return 1;
+  }
+  if (!yes && !(await confirm("Write it with administrator rights?"))) {
+    print(`Nothing changed. ${sudoInstructions(helper)}`);
+    return 1;
+  }
+  const r = runAsRoot(helper);
+  if (r.ok) {
+    print(`Installed and loaded ${file}. Start ${id} (Revamped) again.`);
+    return 0;
+  }
+  print(cancelled(r) ? "The administrator prompt was cancelled; nothing changed." : pkexecFailed(r, helper));
+  return 1;
+}
+
+/** After an uninstall: offers to remove this user's sandbox profile for the app. Never fails the uninstall. */
+async function removeProfile(paths: Paths, id: string, yes: boolean): Promise<void> {
+  const names = existingProfileNames(paths, id, realSandboxEnv());
+  if (names.length === 0) return;
+  const helper = writeHelper(paths, `${names[0]}-remove`, removeAllHelper(names));
+  const files = names.map((n) => `${PROFILE_DIR}/${n}`);
+  for (const f of files) print(`A sandbox profile ${f} remains.`);
+  if (!canPrompt(process.env)) {
+    print(sudoInstructions(helper));
+    return;
+  }
+  if (!yes && !(await confirm("Remove it with administrator rights?"))) {
+    print(`It stays. ${sudoInstructions(helper)}`);
+    return;
+  }
+  const r = runAsRoot(helper);
+  if (r.ok) print(`Removed ${files.join(", ")}.`);
+  else print(cancelled(r) ? "The administrator prompt was cancelled; the profile stays." : pkexecFailed(r, helper));
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -165,8 +226,15 @@ async function main(argv: string[]): Promise<number> {
       if (!values.yes && !(await confirm(`Remove Revamped ${id} (all versions, its menu entry and saved choices)?`))) return 1;
       uninstall(paths, id);
       print(`Removed Revamped ${id}.`);
+      try {
+        await removeProfile(paths, id, values.yes ?? false);
+      } catch (e) {
+        printError(`revamp: couldn't check for a sandbox profile: ${e instanceof Error ? e.message : String(e)}`);
+      }
       return 0;
     }
+    case "sandbox":
+      return sandbox(paths, needApp(), values.yes ?? false);
     case "check": {
       await seedDefaultSource(paths, printError);
       const r = await checkUpdates({ paths, log: (line) => printError(line) });

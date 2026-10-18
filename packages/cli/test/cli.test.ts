@@ -2,11 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PatchAppResult, PatchListing } from "@revamp-app/engine";
+import { installHelper, profileText, type PatchAppResult, type PatchListing } from "@revamp-app/engine";
 import { writeDemoBundle } from "../../engine/test/helpers/demo.ts";
 import { formatInstalls, formatPatchList, formatPatchResult, printable } from "../src/format.ts";
 
@@ -18,12 +18,12 @@ function freshHome(): string {
   writeFileSync(join(home, ".config/revamp/sources.json"), '{"sources":[]}\n');
   return home;
 }
-const cli = (args: string[], home = freshHome(), input = "") =>
-  spawnSync(process.execPath, [MAIN, ...args], {
-    encoding: "utf8",
-    input,
-    env: { ...process.env, HOME: home, XDG_DATA_HOME: "", XDG_CONFIG_HOME: "", XDG_CACHE_HOME: "", XDG_STATE_HOME: "" },
-  });
+/** `extra` overrides the spawned CLI's environment; an undefined value removes the variable (this machine has DISPLAY=:0). */
+const cli = (args: string[], home = freshHome(), input = "", extra: Record<string, string | undefined> = {}) => {
+  const env: Record<string, string | undefined> = { ...process.env, HOME: home, XDG_DATA_HOME: "", XDG_CONFIG_HOME: "", XDG_CACHE_HOME: "", XDG_STATE_HOME: "", ...extra };
+  for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
+  return spawnSync(process.execPath, [MAIN, ...args], { encoding: "utf8", input, env: env as NodeJS.ProcessEnv });
+};
 
 test("formatPatchResult shows each patch, failures under it, and notes", () => {
   const r: PatchAppResult = {
@@ -241,4 +241,81 @@ test("the timer needs the installed binary", () => {
   const bin = join(home, ".local/share/revamp/bin/revamp");
   assert.equal(cli(["timer", "enable"], home).stderr, `revamp: the timer runs the installed revamp (${bin}): run npm run install:cli, then revamp timer enable\n`);
   assert.match(cli(["timer"]).stderr, /^"timer" needs enable or disable\./);
+});
+
+/** A home with Revamped hydra installed (its menu entry and app dir) and a fake pkexec first on PATH that logs its arguments and exits with `exit`. */
+function sandboxHome(exit = 0) {
+  const home = freshHome();
+  const data = join(home, ".local/share/revamp");
+  mkdirSync(join(data, "apps/hydra/current"), { recursive: true });
+  mkdirSync(join(home, ".local/share/applications"), { recursive: true });
+  writeFileSync(join(home, ".local/share/applications/revamp-hydra.desktop"), `[Desktop Entry]\nName=Hydra (Revamped)\nExec="${data}/apps/hydra/current/hydralauncher" %U\n`);
+  const bin = join(home, "bin");
+  mkdirSync(bin);
+  const log = join(home, "pkexec.log");
+  writeFileSync(join(bin, "pkexec"), `#!/bin/sh\necho "$@" >> '${log}'\nexit ${exit}\n`);
+  chmodSync(join(bin, "pkexec"), 0o755);
+  const env = { PATH: `${bin}:${process.env.PATH}`, DISPLAY: ":0" };
+  const pattern = `${data}/apps/hydra/*/hydralauncher`;
+  return { home, log, env, pattern, helper: join(home, ".local/state/revamp/sandbox/revamp-hydra.sh") };
+}
+
+test("sandbox needs an installed app", () => {
+  const r = cli(["sandbox", "hydra"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /hydra is not installed/);
+});
+
+test("sandbox writes the helper and runs it through pkexec", () => {
+  const s = sandboxHome();
+  const r = cli(["sandbox", "hydra", "--yes"], s.home, "", s.env);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.ok(r.stdout.includes(`profile revamp-hydra "${s.pattern}"`), r.stdout);
+  assert.ok(r.stdout.includes("This writes /etc/apparmor.d/revamp-hydra and runs: apparmor_parser -r /etc/apparmor.d/revamp-hydra  (helper: "), r.stdout);
+  assert.match(r.stdout, /Installed and loaded \/etc\/apparmor\.d\/revamp-hydra\. Start hydra \(Revamped\) again\./);
+  assert.equal(readFileSync(s.log, "utf8"), `/bin/sh ${s.helper}\n`);
+  assert.equal(readFileSync(s.helper, "utf8"), installHelper("revamp-hydra", profileText("revamp-hydra", s.pattern)));
+});
+
+test("sandbox reports a cancelled administrator prompt", () => {
+  const s = sandboxHome(126);
+  const r = cli(["sandbox", "hydra", "--yes"], s.home, "", s.env);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /The administrator prompt was cancelled; nothing changed\./);
+  assert.doesNotMatch(r.stdout, /Installed and loaded/);
+});
+
+test("sandbox shows pkexec's other failures with the sudo way out", () => {
+  const s = sandboxHome(3);
+  const r = cli(["sandbox", "hydra", "--yes"], s.home, "", s.env);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /pkexec failed \(exit 3\)/);
+  assert.match(r.stdout, /sudo sh .*revamp-hydra\.sh/);
+});
+
+test("sandbox without a display gives the sudo command and never calls pkexec", () => {
+  const s = sandboxHome();
+  const r = cli(["sandbox", "hydra", "--yes"], s.home, "", { ...s.env, DISPLAY: undefined, WAYLAND_DISPLAY: undefined });
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /Run it with sudo instead:\n {2}sudo sh .*revamp-hydra\.sh/);
+  assert.equal(existsSync(s.log), false);
+  assert.equal(existsSync(s.helper), true);
+});
+
+test("answering no to the sandbox prompt changes nothing", () => {
+  const s = sandboxHome();
+  const r = cli(["sandbox", "hydra"], s.home, "n\n", s.env);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /Write it with administrator rights\? \[y\/N\] /);
+  assert.match(r.stdout, /Nothing changed\. Run it with sudo instead:\n {2}sudo sh .*revamp-hydra\.sh/);
+  assert.equal(existsSync(s.log), false);
+});
+
+test("uninstall finishes without a profile line when /etc/apparmor.d has none", () => {
+  const s = sandboxHome();
+  const r = cli(["uninstall", "hydra", "--yes"], s.home, "", s.env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, "Removed Revamped hydra.\n");
+  assert.equal(existsSync(join(s.home, ".local/share/revamp/apps/hydra")), false);
+  assert.equal(existsSync(s.log), false);
 });
