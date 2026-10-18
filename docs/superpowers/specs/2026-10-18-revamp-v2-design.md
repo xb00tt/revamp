@@ -82,7 +82,7 @@ Three things make it special:
 
 Prints one line per check, with ✓ / ✗ and the fix:
 - Linux x86_64, glibc ≥ 2.39 (the binary's floor), WebKitGTK 4.1 present (for the window).
-- `kernel.apparmor_restrict_unprivileged_userns`: `0` fine; `1` → "Revamped apps need an AppArmor profile: run `revamp sandbox <app>`" per installed app, and whether the profile is already loaded (`/sys/kernel/security/apparmor/profiles`).
+- `kernel.apparmor_restrict_unprivileged_userns`: `0` fine; `1` → "Revamped apps need an AppArmor profile: run `revamp sandbox <app>`" per installed app, and whether the profile is already loaded (`/sys/kernel/security/apparmor/profiles`). (`/sys/kernel/security/apparmor/profiles` is root-only, so `doctor` reports the profile file in `/etc/apparmor.d/`, not the loaded state.)
 - `~/.local/bin` on PATH; the timer enabled and its last run; each source's pin, whether it's signed, and when it was last checked successfully (from `last-check.json`). `doctor` never fetches anything (decision 16).
 - Installed apps and whether each one's current version has a receipt.
 - The glibc check applies to the window (2.39) only when it's installed; the CLI needs Node's 2.28 (decision 18).

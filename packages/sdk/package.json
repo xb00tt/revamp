@@ -1,6 +1,6 @@
 {
   "name": "@revamp-app/sdk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Declarations and types for Revamp bundle authors",
   "license": "GPL-3.0-only",

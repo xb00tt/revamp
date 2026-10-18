@@ -36,6 +36,10 @@ tar -xzf revamp-1.0.0-linux-x86_64.tar.gz
 revamp patch hydra
 ```
 
+**If a Revamped app won't start:** run `revamp doctor` to check the machine. On Ubuntu 24.04 or newer, `revamp sandbox hydra`
+installs the AppArmor profile the app needs (one administrator prompt, after showing you what it writes); see
+[docs/electron-sandbox.md](docs/electron-sandbox.md).
+
 ## Develop
 
 Revamp needs Node 26 (the repo refuses older versions):

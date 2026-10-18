@@ -40,7 +40,7 @@ test(
       node(`import { describe, ENGINE_VERSION } from "@revamp-app/engine";
         const d = await describe(${JSON.stringify(bundle)});
         console.log(d.manifest.name, ENGINE_VERSION);`),
-      "Demo bundle 1.0.0",
+      "Demo bundle 1.1.0",
     );
     assert.equal(node('const m = await import("@revamp-app/cli/format"); console.log(typeof m.formatPatchResult);'), "function");
     // Only the listed exports are reachable: patch code can't import a package's internal files.
