@@ -3,25 +3,21 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { doctorExitCode, onPath, realDoctorEnv, runDoctor, sandboxProfilePresent, WINDOW_GLIBC, type DoctorEnv } from "../src/doctor.ts";
+import { doctorExitCode, onPath, parseTimerShow, realDoctorEnv, runDoctor, WINDOW_GLIBC, type DoctorEnv } from "../src/doctor.ts";
 import { environmentWarnings } from "../src/install.ts";
 import { revampPaths, type Paths } from "../src/paths.ts";
-import { SYSCTL_PATH } from "../src/sandbox-profile.ts";
+import { sandboxProfilePresent, SYSCTL_PATH } from "../src/sandbox-profile.ts";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "revamp-doc-"));
 const HOME = "/home/u";
 
-/** Temp paths with the given apps installed, one source and a last check, plus the window when asked. */
-function setup(o: { apps?: string[]; window?: boolean; sources?: boolean; check?: boolean } = {}): Paths {
+/** Temp paths with the given apps installed, one source and a last check. The window is only in the fake env. */
+function setup(o: { apps?: string[]; sources?: boolean; check?: boolean } = {}): Paths {
   const p = revampPaths({ HOME: tmp() });
   for (const a of o.apps ?? ["hydra"]) {
     mkdirSync(join(p.data, "apps", a, "1.0.0"), { recursive: true });
     writeFileSync(join(p.data, "apps", a, "1.0.0", "revamp.json"), JSON.stringify({ installedAt: "2026-10-18T07:00:00.000Z" })); // what makes it a finished install
     symlinkSync("1.0.0", join(p.data, "apps", a, "current"));
-  }
-  if (o.window ?? true) {
-    mkdirSync(join(p.data, "gui"), { recursive: true });
-    writeFileSync(join(p.data, "gui", "revamp-gui"), "");
   }
   if (o.sources ?? true) {
     mkdirSync(p.config, { recursive: true });
@@ -35,21 +31,22 @@ function setup(o: { apps?: string[]; window?: boolean; sources?: boolean; check?
   return p;
 }
 
-/** A healthy machine; `files` are the paths fileExists answers true for (the window is under paths.data). */
-function env(p: Paths, o: Partial<DoctorEnv> & { sysctl?: string; files?: string[]; texts?: Record<string, string> } = {}): DoctorEnv {
-  const files = new Set([join(p.data, "gui", "revamp-gui"), ...(o.files ?? [])]);
+/** A healthy machine; `files` are the paths fileExists answers true for, plus the window (under paths.data) unless `window` is false. */
+function env(p: Paths, o: Partial<DoctorEnv> & { sysctl?: string; files?: string[]; texts?: Record<string, string>; window?: boolean } = {}): DoctorEnv {
+  const { sysctl, files: extra = [], texts, window = true, ...rest } = o;
+  const files = new Set([...(window ? [join(p.data, "gui", "revamp-gui")] : []), ...extra]);
   return {
     platform: "linux",
     arch: "x64",
     glibc: "2.39",
-    readFile: (f) => (f === SYSCTL_PATH ? (o.sysctl ?? "0\n") : o.texts?.[f]),
+    readFile: (f) => (f === SYSCTL_PATH ? (sysctl ?? "0\n") : texts?.[f]),
     fileExists: (f) => files.has(f),
     sharedLibs: () => ["\tlibwebkit2gtk-4.1.so.0 (libc6,x86-64) => /lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0"],
     timer: () => ({ enabled: true, active: true, lastTrigger: "Sun 2026-10-18 09:00:00 UTC", nextElapse: "Mon 2026-10-19 09:00:00 UTC" }),
     pathEntries: ["/usr/bin", `${HOME}/.local/bin`],
     home: HOME,
     username: "u",
-    ...o,
+    ...rest,
   };
 }
 
@@ -74,8 +71,8 @@ test("a healthy machine is green", () => {
 });
 
 test("without the window there are no glibc and webkitgtk checks", () => {
-  const p = setup({ window: false });
-  const checks = runDoctor(p, env(p, { glibc: "2.35", sharedLibs: () => [], fileExists: () => false }));
+  const p = setup();
+  const checks = runDoctor(p, env(p, { window: false, glibc: "2.35", sharedLibs: () => [] }));
   assert.equal(by(checks, "glibc"), undefined);
   assert.equal(by(checks, "webkitgtk"), undefined);
   assert.equal(doctorExitCode(checks), 0);
@@ -163,6 +160,19 @@ test("an unsafe app name is a fixable check, not a throw", () => {
   assert.throws(() => sandboxProfilePresent(p, "my app", env(p)), /unsafe app id/);
 });
 
+test("an empty or unsafe username is the same fixable check; an unsafe app id reads no file", () => {
+  const p = setup();
+  for (const username of ["", "a b"]) {
+    const check = by(runDoctor(p, env(p, { sysctl: "1", username })), "sandbox-hydra")!;
+    assert.equal(check.severity, "fixable");
+    assert.match(check.detail, /^unsafe name: unsafe user /);
+  }
+  const reads: string[] = [];
+  const spy = { readFile: (f: string) => (reads.push(f), undefined), fileExists: () => true, username: "u" };
+  assert.throws(() => sandboxProfilePresent(p, "../x", spy), /unsafe app id/);
+  assert.deepEqual(reads, []);
+});
+
 test("the timer", () => {
   const p = setup();
   const noSystemctl = by(runDoctor(p, env(p, { timer: () => undefined })), "timer")!;
@@ -176,6 +186,29 @@ test("the timer", () => {
   }
 });
 
+test("parseTimerShow reads systemctl show output", () => {
+  const show = [
+    "ActiveState=active",
+    "LastTriggerUSec=Sun 2026-10-18 09:00:00 UTC",
+    "NextElapseUSecRealtime=Mon 2026-10-19 09:00:00 UTC",
+    "UnitFileState=enabled",
+    "",
+  ].join("\n");
+  assert.deepEqual(parseTimerShow(show), {
+    enabled: true,
+    active: true,
+    lastTrigger: "Sun 2026-10-18 09:00:00 UTC",
+    nextElapse: "Mon 2026-10-19 09:00:00 UTC",
+  });
+  // never run: n/a; no next run: empty
+  const idle = parseTimerShow("ActiveState=inactive\nLastTriggerUSec=n/a\nNextElapseUSecRealtime=\nUnitFileState=disabled\n");
+  assert.deepEqual(idle, { enabled: false, active: false, lastTrigger: undefined, nextElapse: undefined });
+  // a missing unit: UnitFileState is empty, so it is not enabled
+  assert.equal(parseTimerShow("ActiveState=inactive\nLastTriggerUSec=n/a\nNextElapseUSecRealtime=\nUnitFileState=\n").enabled, false);
+  // junk lines and CRLF are ignored
+  assert.deepEqual(parseTimerShow("nonsense\r\nActiveState=active\r\n"), { enabled: false, active: true, lastTrigger: undefined, nextElapse: undefined });
+});
+
 test("sources", () => {
   const none = setup({ sources: false });
   const noSources = by(runDoctor(none, env(none)), "sources")!;
@@ -186,11 +219,23 @@ test("sources", () => {
   const never = by(runDoctor(unchecked, env(unchecked)), "sources")!;
   assert.equal(never.severity, "ok");
   assert.equal(never.detail, "xb00tt/revamp-patches official 0.5.0\nnever checked");
-  // a corrupt sources.json is reported, not thrown
+  // a corrupt sources.json is reported, not thrown, and the fix is to repair the file, not to add a source
   const bad = setup({ sources: false });
   mkdirSync(bad.config, { recursive: true });
   writeFileSync(join(bad.config, "sources.json"), "{nope");
-  assert.equal(by(runDoctor(bad, env(bad)), "sources")?.severity, "fixable");
+  const corrupt = by(runDoctor(bad, env(bad)), "sources")!;
+  assert.equal(corrupt.severity, "fixable");
+  assert.equal(corrupt.fix, `repair or remove ${join(bad.config, "sources.json")}`);
+  // null entries are skipped; a last check without a time counts as never checked
+  const odd = setup({ sources: false, check: false });
+  mkdirSync(odd.config, { recursive: true });
+  const entry = { location: "a/b", kind: "github", name: "n", version: "1", sha256: "a".repeat(64), apps: [] };
+  writeFileSync(join(odd.config, "sources.json"), JSON.stringify({ sources: [null, entry] }));
+  mkdirSync(odd.state, { recursive: true });
+  writeFileSync(join(odd.state, "last-check.json"), JSON.stringify({ sources: [], apps: [] }));
+  assert.equal(by(runDoctor(odd, env(odd)), "sources")?.detail, "a/b n 1\nnever checked");
+  writeFileSync(join(odd.config, "sources.json"), JSON.stringify({ sources: [null] }));
+  assert.equal(by(runDoctor(odd, env(odd)), "sources")?.detail, "none added");
 });
 
 test("apps lists each install, or none yet", () => {
@@ -199,6 +244,17 @@ test("apps lists each install, or none yet", () => {
   assert.equal(by(runDoctor(p, env(p)), "apps")?.severity, "ok");
   const two = setup({ apps: ["hydra", "heroic"] });
   assert.deepEqual(by(runDoctor(two, env(two)), "apps")?.detail.split("\n").sort(), ["heroic 1.0.0", "hydra 1.0.0"]);
+});
+
+test("an unreadable apps folder is a fixable apps check, not a throw", () => {
+  const p = setup({ apps: [] });
+  mkdirSync(p.data, { recursive: true });
+  writeFileSync(join(p.data, "apps"), "not a folder"); // listInstalls reads it as a directory
+  const checks = runDoctor(p, env(p, { sysctl: "1" }));
+  const apps = by(checks, "apps")!;
+  assert.equal(apps.severity, "fixable");
+  assert.match(apps.detail, /^could not read installed apps: /);
+  assert.equal(checks.some((c) => c.id.startsWith("sandbox-")), false);
 });
 
 test("PATH: missing is fixable, a trailing slash counts", () => {
@@ -219,18 +275,16 @@ test("the exit code is the worst severity", () => {
 });
 
 test("realDoctorEnv has the right shape", () => {
+  // nothing here runs ldconfig, systemctl or process.report: those stay behind the functions and the glibc getter
   const e = realDoctorEnv();
   assert.equal(typeof e.platform, "string");
   assert.equal(typeof e.arch, "string");
-  assert.ok(e.glibc === undefined || typeof e.glibc === "string");
   assert.ok(Array.isArray(e.pathEntries));
   assert.equal(typeof e.home, "string");
   assert.equal(typeof e.username, "string");
-  assert.equal(typeof e.readFile, "function");
-  assert.equal(typeof e.fileExists, "function");
-  assert.ok(Array.isArray(e.sharedLibs()));
-  const t = e.timer();
-  assert.ok(t === undefined || typeof t.enabled === "boolean");
+  for (const fn of [e.readFile, e.fileExists, e.sharedLibs, e.timer]) assert.equal(typeof fn, "function");
+  assert.equal(e.readFile(join(tmp(), "missing")), undefined);
+  assert.equal(e.fileExists(tmp()), true);
 });
 
 test("the install note names revamp sandbox and goes quiet once the profile exists", () => {
@@ -242,6 +296,6 @@ test("the install note names revamp sandbox and goes quiet once the profile exis
     lines[1],
     "This system restricts unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=1), so Electron's sandbox can't start in an app installed in your home folder. Run once: revamp sandbox hydra",
   );
-  assert.equal(environmentWarnings({ id: "hydra", name: "Hydra" }, { sysctl: f, profileExists: (n) => n === "revamp-hydra" }).length, 1);
-  assert.equal(environmentWarnings({ id: "hydra", name: "Hydra" }, { sysctl: f, profileExists: (n) => n === "revamp-heroic" }).length, 2);
+  assert.equal(environmentWarnings({ id: "hydra", name: "Hydra" }, { sysctl: f, profileExists: () => true }).length, 1);
+  assert.equal(environmentWarnings({ id: "hydra", name: "Hydra" }, { sysctl: f, profileExists: () => false }).length, 2);
 });

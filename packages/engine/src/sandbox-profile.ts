@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { userInfo } from "node:os";
 import { join } from "node:path";
 import { parseDesktopEntry } from "./desktop.ts";
 import { desktopFilePath } from "./install.ts";
@@ -24,6 +25,46 @@ export function profileName(appId: string, existing: string | undefined, dataDir
   // Anchored on what precedes the path, so a short data dir doesn't match inside another user's longer one.
   const ours = existing.startsWith(prefix) || ['"', " ", "\n"].some((c) => existing.includes(c + prefix));
   return ours ? base : `${base}-${assertSafeName("user", username)}`;
+}
+
+/** What the profile lookups read from the machine, so tests supply a fake. */
+export interface SandboxProfileEnv {
+  readFile(path: string): string | undefined;
+  fileExists(path: string): boolean;
+  username: string;
+}
+
+/** The real machine; the username falls back to $USER when the user database can't be read. */
+export function realSandboxEnv(): SandboxProfileEnv {
+  let username = process.env.USER ?? "";
+  try {
+    username = userInfo().username;
+  } catch {
+    // keep $USER
+  }
+  return {
+    readFile: (path) => {
+      try {
+        return readFileSync(path, "utf8");
+      } catch {
+        return undefined;
+      }
+    },
+    fileExists: existsSync,
+    username,
+  };
+}
+
+/** The profile names that count as this user's for an app: the plain one unless another user's profile holds it, and the suffixed one an earlier run may have used. Throws on an unsafe app id or username. */
+export function sandboxProfileNames(paths: Paths, appId: string, env: Pick<SandboxProfileEnv, "readFile" | "username">): string[] {
+  const base = `revamp-${assertSafeName("app id", appId)}`; // before any path is built from it
+  assertSafeName("user", env.username);
+  return [profileName(appId, env.readFile(join(PROFILE_DIR, base)), paths.data, env.username), `${base}-${env.username}`];
+}
+
+/** Whether this user's sandbox profile for the app is in /etc/apparmor.d (not whether it is loaded: that needs root). Throws on an unsafe app id or username. */
+export function sandboxProfilePresent(paths: Paths, appId: string, env: SandboxProfileEnv): boolean {
+  return sandboxProfileNames(paths, appId, env).some((n) => env.fileExists(join(PROFILE_DIR, n)));
 }
 
 /** The AppArmor path pattern: "<dataDir>/apps/<appId>/<any version>/<executable>". */

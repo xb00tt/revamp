@@ -56,15 +56,16 @@ export {
   profileText,
   PROFILE_DIR,
   removeHelper,
+  sandboxProfilePresent,
   SYSCTL_PATH,
   userNamespacesRestricted,
 } from "./sandbox-profile.ts";
 export {
   doctorExitCode,
   onPath,
+  parseTimerShow,
   realDoctorEnv,
   runDoctor,
-  sandboxProfilePresent,
   WINDOW_GLIBC,
   type DoctorCheck,
   type DoctorEnv,

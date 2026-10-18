@@ -4,19 +4,20 @@ import { assertAsarPath, readAsar, writeAsar } from "./asar.ts";
 import { loadSelection, resolveSelection, saveSelection, type Selection } from "./config.ts";
 import { extractDeb, type EntryKind } from "./deb.ts";
 import { parseDesktopEntry } from "./desktop.ts";
-import { realDoctorEnv, sandboxProfilePresent } from "./doctor.ts";
 import { downloadVerified, fileSha256, releaseDigest } from "./download.ts";
 import type { PatchResult } from "./graph.ts";
 import { environmentWarnings, ICON_FILE, installStaged, listInstalls, lockApp, newStaging } from "./install.ts";
 import { ASAR_PATH, patchesForApp, type AppInfo, type BundleDescription, type PatchInfo, type SandboxPatchOutput } from "./job.ts";
 import { assertSafeName, assertSafeRelativePath, releasePath, revampPaths, type Paths } from "./paths.ts";
 import { runSandboxed } from "./sandbox.ts";
+// The install note reads /etc/apparmor.d (read-only), and only when the userns sysctl is 1.
+import { realSandboxEnv, sandboxProfilePresent } from "./sandbox-profile.ts";
 import { compareVersions, ENGINE_VERSION } from "./version.ts";
 
 /** The install note's question; an unsafe username can't be judged, so the note stays. */
 function profileInstalled(paths: Paths, appId: string): boolean {
   try {
-    return sandboxProfilePresent(paths, appId, realDoctorEnv());
+    return sandboxProfilePresent(paths, appId, realSandboxEnv());
   } catch {
     return false;
   }

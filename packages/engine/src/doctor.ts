@@ -1,11 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { loadSources } from "./bundle-sources.ts";
-import { listInstalls } from "./install.ts";
+import { listInstalls, type InstalledApp } from "./install.ts";
 import type { Paths } from "./paths.ts";
-import { PROFILE_DIR, profileName, SYSCTL_PATH } from "./sandbox-profile.ts";
+import { PROFILE_DIR, realSandboxEnv, sandboxProfileNames, SYSCTL_PATH, type SandboxProfileEnv } from "./sandbox-profile.ts";
 import { loadLastCheck } from "./updates.ts";
 
 export type DoctorSeverity = "ok" | "fixable" | "broken";
@@ -18,19 +17,16 @@ export interface DoctorCheck {
 }
 
 /** Everything doctor reads from the machine, so tests supply a fake. */
-export interface DoctorEnv {
+export interface DoctorEnv extends SandboxProfileEnv {
   platform: string;
   arch: string;
   glibc?: string;
-  readFile(path: string): string | undefined;
-  fileExists(path: string): boolean;
   /** `ldconfig -p` lines; [] when unavailable. */
   sharedLibs(): string[];
   /** undefined = no systemctl. */
   timer(): { enabled: boolean; active: boolean; lastTrigger?: string; nextElapse?: string } | undefined;
   pathEntries: string[];
   home: string;
-  username: string;
 }
 
 /** The window is built on glibc 2.39; the CLI's own floor is Node's. */
@@ -39,45 +35,57 @@ export const WINDOW_GLIBC = "2.39";
 /** Whether `dir` is one of the PATH entries, ignoring trailing slashes. */
 export const onPath = (entries: string[], dir: string) => entries.some((e) => e.replace(/\/+$/, "") === dir.replace(/\/+$/, ""));
 
-export function realDoctorEnv(): DoctorEnv {
-  let glibc: string | undefined;
-  try {
-    glibc = (process.report.getReport() as unknown as { header: { glibcVersionRuntime?: string } }).header.glibcVersionRuntime;
-  } catch {
-    // no report: glibc stays unknown
+/** The timer fields out of `systemctl show -p ActiveState -p LastTriggerUSec -p NextElapseUSecRealtime -p UnitFileState`. */
+export function parseTimerShow(stdout: string): { enabled: boolean; active: boolean; lastTrigger?: string; nextElapse?: string } {
+  const v: Record<string, string> = {};
+  for (const line of stdout.split("\n")) {
+    const eq = line.indexOf("=");
+    if (eq > 0) v[line.slice(0, eq)] = line.slice(eq + 1).trim();
   }
-  const run = (cmd: string, args: string[]) => {
-    const r = spawnSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    return r.error ? undefined : r;
-  };
+  const time = (s?: string) => (s && s !== "n/a" ? s : undefined);
   return {
+    enabled: v.UnitFileState === "enabled",
+    active: v.ActiveState === "active",
+    lastTrigger: time(v.LastTriggerUSec),
+    nextElapse: time(v.NextElapseUSecRealtime),
+  };
+}
+
+function glibcVersion(): string | undefined {
+  try {
+    return (process.report.getReport() as unknown as { header: { glibcVersionRuntime?: string } }).header.glibcVersionRuntime;
+  } catch {
+    return undefined; // no report: glibc stays unknown
+  }
+}
+
+/** The only place doctor reads the machine. Nothing runs until a check asks (glibc and the two commands are lazy). */
+export function realDoctorEnv(): DoctorEnv {
+  // A missing binary, a non-zero exit or a hang all mean "unavailable".
+  const run = (cmd: string, args: string[]) => {
+    const r = spawnSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 });
+    return r.error || r.status !== 0 ? undefined : r;
+  };
+  let home = process.env.HOME ?? "";
+  try {
+    home ||= userInfo().homedir;
+  } catch {
+    // keep ""
+  }
+  return {
+    ...realSandboxEnv(),
     platform: process.platform,
     arch: process.arch,
-    glibc,
-    readFile: (path) => {
-      try {
-        return readFileSync(path, "utf8");
-      } catch {
-        return undefined;
-      }
+    get glibc() {
+      return glibcVersion();
     },
-    fileExists: existsSync,
-    sharedLibs: () => run("ldconfig", ["-p"])?.stdout.split("\n") ?? [],
+    sharedLibs: () => (run("ldconfig", ["-p"]) ?? run("/sbin/ldconfig", ["-p"]))?.stdout.split("\n") ?? [],
     timer: () => {
       const r = run("systemctl", ["--user", "show", "revamp-check.timer", "-p", "ActiveState", "-p", "LastTriggerUSec", "-p", "NextElapseUSecRealtime", "-p", "UnitFileState"]);
-      if (!r) return undefined;
-      const v = Object.fromEntries(r.stdout.split("\n").map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
-      const time = (s?: string) => (s && s !== "n/a" ? s : undefined);
-      return {
-        enabled: v.UnitFileState === "enabled",
-        active: v.ActiveState === "active",
-        lastTrigger: time(v.LastTriggerUSec),
-        nextElapse: time(v.NextElapseUSecRealtime),
-      };
+      return r && parseTimerShow(r.stdout);
     },
     pathEntries: (process.env.PATH ?? "").split(":"),
-    home: process.env.HOME || userInfo().homedir,
-    username: userInfo().username,
+    home,
   };
 }
 
@@ -88,20 +96,16 @@ function glibcAtLeast(have: string, want: string): boolean {
   return h1 > w1 || (h1 === w1 && h2 >= w2);
 }
 
-/** The profile names that count as this user's for an app: the plain one unless another user's profile holds it, and the suffixed one an earlier run may have used. */
-function sandboxProfileNames(paths: Paths, appId: string, env: Pick<DoctorEnv, "readFile" | "username">): string[] {
-  const base = `revamp-${appId}`;
-  return [profileName(appId, env.readFile(join(PROFILE_DIR, base)), paths.data, env.username), `${base}-${env.username}`];
-}
-
-/** Whether this user's sandbox profile for the app is in /etc/apparmor.d (not whether it is loaded: that needs root). Throws on an unsafe app id or username. */
-export function sandboxProfilePresent(paths: Paths, appId: string, env: Pick<DoctorEnv, "readFile" | "fileExists" | "username">): boolean {
-  return sandboxProfileNames(paths, appId, env).some((n) => env.fileExists(join(PROFILE_DIR, n)));
-}
-
 /** The checks, in report order. Reads only local state; never the network. */
 export function runDoctor(paths: Paths, env: DoctorEnv): DoctorCheck[] {
   const checks: DoctorCheck[] = [];
+  let apps: InstalledApp[] = [];
+  let appsError: string | undefined;
+  try {
+    apps = listInstalls(paths);
+  } catch (e) {
+    appsError = (e as Error).message;
+  }
   const add = (id: string, label: string, ok: boolean, detail: string, fix: string, notOk: DoctorSeverity = "fixable") =>
     checks.push(ok ? { id, label, severity: "ok", detail } : { id, label, severity: notOk, detail, fix });
 
@@ -128,7 +132,7 @@ export function runDoctor(paths: Paths, env: DoctorEnv): DoctorCheck[] {
     detail: restricted ? "restricted (kernel.apparmor_restrict_unprivileged_userns=1)" : "unrestricted",
   });
   if (restricted) {
-    for (const { appId } of listInstalls(paths)) {
+    for (const { appId } of apps) {
       const id = `sandbox-${appId}`;
       const label = `Sandbox profile for ${appId}`;
       let names: string[];
@@ -169,24 +173,27 @@ export function runDoctor(paths: Paths, env: DoctorEnv): DoctorCheck[] {
     "revamp timer enable",
   );
 
-  let sources: { location: string; name: string; version: string }[] = [];
-  let sourcesError: string | undefined;
   try {
-    sources = loadSources(paths);
+    const sources = loadSources(paths).filter(Boolean); // a hand-edited file may hold nulls
+    const check = loadLastCheck(paths);
+    add(
+      "sources",
+      "Bundle sources",
+      sources.length > 0,
+      sources.length === 0
+        ? "none added"
+        : [...sources.map((s) => `${s.location} ${s.name} ${s.version}`), check?.checkedAt ? `last check ${check.checkedAt}` : "never checked"].join("\n"),
+      "revamp sources add xb00tt/revamp-patches",
+    );
   } catch (e) {
-    sourcesError = (e as Error).message;
+    checks.push({ id: "sources", label: "Bundle sources", severity: "fixable", detail: (e as Error).message, fix: `repair or remove ${join(paths.config, "sources.json")}` });
   }
-  const check = loadLastCheck(paths);
-  add(
-    "sources",
-    "Bundle sources",
-    sources.length > 0,
-    sourcesError ?? (sources.length === 0 ? "none added" : [...sources.map((s) => `${s.location} ${s.name} ${s.version}`), check ? `last check ${check.checkedAt}` : "never checked"].join("\n")),
-    "revamp sources add xb00tt/revamp-patches",
-  );
 
-  const apps = listInstalls(paths);
-  checks.push({ id: "apps", label: "Revamped apps", severity: "ok", detail: apps.length ? apps.map((a) => `${a.appId} ${a.current ?? "(no current version)"}`).join("\n") : "none yet" });
+  checks.push(
+    appsError !== undefined
+      ? { id: "apps", label: "Revamped apps", severity: "fixable", detail: `could not read installed apps: ${appsError}` }
+      : { id: "apps", label: "Revamped apps", severity: "ok", detail: apps.length ? apps.map((a) => `${a.appId} ${a.current ?? "(no current version)"}`).join("\n") : "none yet" },
+  );
   return checks;
 }
 
