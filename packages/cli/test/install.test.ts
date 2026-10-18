@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { revampPaths } from "@revamp-app/engine";
-import { installCli, installWindow } from "../src/install.ts";
+import { installCli, installWindow, onPath } from "../src/install.ts";
 
 const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
 function setup() {
@@ -79,4 +79,9 @@ test("revamp self-install from source refuses", () => {
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /self-install runs from the release's revamp binary; from the repo use npm run install:cli or npm run gui:install/);
   assert.equal(existsSync(join(home, ".local")), false);
+});
+
+test("onPath ignores trailing slashes", () => {
+  assert.equal(onPath(["/usr/bin", "/h/.local/bin/"], "/h/.local/bin"), true);
+  assert.equal(onPath(["/usr/bin"], "/h/.local/bin"), false);
 });

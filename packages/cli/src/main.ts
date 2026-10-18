@@ -27,7 +27,7 @@ import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
 import { serve } from "./serve.ts";
-import { installCli, installWindow } from "./install.ts";
+import { installCli, installWindow, onPath } from "./install.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
 
 // Bundles supply names, notes and messages, and the trust prompt follows them: print nothing that moves the cursor.
@@ -212,8 +212,8 @@ async function main(argv: string[]): Promise<number> {
       const gui = join(dir, "revamp-gui");
       const icon = join(dir, "revamp.png");
       if (existsSync(gui) && existsSync(icon)) print(`Installed ${installWindow(paths, { gui, icon })}; "Revamp" is in your applications menu.`);
-      else print("No revamp-gui beside this binary: installed the command line only.");
-      if (!(process.env.PATH ?? "").split(":").includes(dirname(link))) print("Add ~/.local/bin to your PATH to run revamp from anywhere.");
+      else print("No revamp-gui beside this binary, so only the command line was (re)installed; an installed window stays as it is.");
+      if (!onPath((process.env.PATH ?? "").split(":"), dirname(link))) print("Add ~/.local/bin to your PATH to run revamp from anywhere.");
       print("For a daily update check, run: revamp timer enable");
       return 0;
     }

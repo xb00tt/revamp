@@ -57,7 +57,7 @@ try {
   writeFileSync(join(stage, "README.txt"), releaseReadme(version));
   chmodSync(join(stage, "revamp"), 0o755);
   chmodSync(join(stage, "revamp-gui"), 0o755);
-  run("tar", ["-czf", join(tmp, asset), "-C", tmp, dirName]);
+  run("tar", ["--owner=0", "--group=0", "--numeric-owner", "-czf", join(tmp, asset), "-C", tmp, dirName]);
   const sums = join(tmp, "SHA256SUMS");
   writeFileSync(sums, sha256sumsLine(createHash("sha256").update(readFileSync(join(tmp, asset))).digest("hex"), asset));
 

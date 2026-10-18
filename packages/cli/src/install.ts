@@ -55,3 +55,6 @@ export function installWindow(paths: Paths, files: { gui: string; icon: string }
   spawnSync("update-desktop-database", [paths.applications], { stdio: "ignore" }); // optional tool
   return gui;
 }
+
+/** Whether `dir` is one of the PATH entries, ignoring trailing slashes. */
+export const onPath = (entries: string[], dir: string) => entries.some((e) => e.replace(/\/+$/, "") === dir.replace(/\/+$/, ""));
