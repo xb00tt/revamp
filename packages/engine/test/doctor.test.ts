@@ -287,6 +287,15 @@ test("realDoctorEnv has the right shape", () => {
   assert.equal(e.fileExists(tmp()), true);
 });
 
+test("realDoctorEnv reads profiles from $REVAMP_PROFILE_DIR too", (t) => {
+  const dir = tmp();
+  writeFileSync(join(dir, "revamp-hydra"), "x");
+  const saved = process.env.REVAMP_PROFILE_DIR;
+  t.after(() => (saved === undefined ? delete process.env.REVAMP_PROFILE_DIR : (process.env.REVAMP_PROFILE_DIR = saved)));
+  process.env.REVAMP_PROFILE_DIR = dir;
+  assert.equal(realDoctorEnv().fileExists("/etc/apparmor.d/revamp-hydra"), true);
+});
+
 test("the install note names revamp sandbox and goes quiet once the profile exists", () => {
   const f = join(tmp(), "sysctl");
   writeFileSync(f, "1\n");

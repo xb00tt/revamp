@@ -22,6 +22,7 @@ import {
   profileText,
   PROFILE_DIR,
   realSandboxEnv,
+  removeHelper,
   removeSource,
   revampPaths,
   rollback,
@@ -34,7 +35,7 @@ import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandida
 import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
-import { canPrompt, chooseProfileName, existingProfileNames, removeAllHelper, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
+import { canPrompt, chooseProfileName, existingProfileNames, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
 import { serve } from "./serve.ts";
 import { installCli, installWindow } from "./install.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
@@ -106,53 +107,59 @@ async function sources(paths: Paths, sub: string | undefined, location: string |
 
 /** pkexec exits 126 when the prompt is dismissed and 127 when authorization fails. */
 const cancelled = (r: { status: number | null }) => r.status === 126 || r.status === 127;
-const pkexecFailed = (r: { status: number | null; output: string }, helper: string) =>
-  `pkexec failed (exit ${r.status ?? "none"})${r.output ? `: ${r.output}` : ""}\n${sudoInstructions(helper)}`;
+const pkexecFailed = (r: { status: number | null; output: string }, sudo: string) =>
+  `pkexec failed (exit ${r.status ?? "none"})${r.output ? `: ${r.output}` : ""}\n${sudo}`;
+/** What root is about to run, shown before anything asks for it. */
+const showScript = (script: string) => print(`This script runs with administrator rights:\n\n${script.trimEnd()}\n`);
 
 async function sandbox(paths: Paths, id: string, yes: boolean): Promise<number> {
   const exe = installedExecutable(paths, id);
   const name = chooseProfileName(paths, id, realSandboxEnv());
-  const text = profileText(name, profilePattern(paths.data, id, exe));
-  const helper = writeHelper(paths, name, installHelper(name, text));
+  const script = installHelper(name, profileText(name, profilePattern(paths.data, id, exe)));
   const file = `${PROFILE_DIR}/${name}`;
+  // pkexec gets the script on its stdin; this file is only for the user's own sudo, written when that is the way out.
+  const sudo = () => sudoInstructions(writeHelper(paths, name, script));
   if (!userNamespacesRestricted()) print(`This system doesn't restrict user namespaces, so Revamped ${id} starts without a profile. Installing one anyway is harmless.`);
-  print(text);
-  print(`This writes ${file} and runs: apparmor_parser -r ${file}  (helper: ${helper})`);
+  showScript(script);
+  print(`This writes ${file} and runs: apparmor_parser -r ${file}`);
   if (!canPrompt(process.env)) {
-    print(sudoInstructions(helper));
+    print(sudo());
     return 1;
   }
   if (!yes && !(await confirm("Write it with administrator rights?"))) {
-    print(`Nothing changed. ${sudoInstructions(helper)}`);
+    print(`Nothing changed. ${sudo()}`);
     return 1;
   }
-  const r = runAsRoot(helper);
+  const r = runAsRoot(script);
   if (r.ok) {
     print(`Installed and loaded ${file}. Start ${id} (Revamped) again.`);
     return 0;
   }
-  print(cancelled(r) ? "The administrator prompt was cancelled; nothing changed." : pkexecFailed(r, helper));
+  print(cancelled(r) ? "The administrator prompt was cancelled; nothing changed." : pkexecFailed(r, sudo()));
   return 1;
 }
 
-/** After an uninstall: offers to remove this user's sandbox profile for the app. Never fails the uninstall. */
+/** After an uninstall: offers to remove this user's sandbox profile(s) for the app. Never fails the uninstall. */
 async function removeProfile(paths: Paths, id: string, yes: boolean): Promise<void> {
   const names = existingProfileNames(paths, id, realSandboxEnv());
   if (names.length === 0) return;
-  const helper = writeHelper(paths, `${names[0]}-remove`, removeAllHelper(names));
+  const many = names.length > 1;
+  const script = removeHelper(names);
+  const sudo = () => sudoInstructions(writeHelper(paths, `${names[0]}-remove`, script));
   const files = names.map((n) => `${PROFILE_DIR}/${n}`);
   for (const f of files) print(`A sandbox profile ${f} remains.`);
   if (!canPrompt(process.env)) {
-    print(sudoInstructions(helper));
+    print(sudo());
     return;
   }
-  if (!yes && !(await confirm("Remove it with administrator rights?"))) {
-    print(`It stays. ${sudoInstructions(helper)}`);
+  showScript(script);
+  if (!yes && !(await confirm(`Remove ${many ? "them" : "it"} with administrator rights?`))) {
+    print(`${many ? "They stay." : "It stays."} ${sudo()}`);
     return;
   }
-  const r = runAsRoot(helper);
+  const r = runAsRoot(script);
   if (r.ok) print(`Removed ${files.join(", ")}.`);
-  else print(cancelled(r) ? "The administrator prompt was cancelled; the profile stays." : pkexecFailed(r, helper));
+  else print(cancelled(r) ? `The administrator prompt was cancelled; the ${many ? "profiles stay" : "profile stays"}.` : pkexecFailed(r, sudo()));
 }
 
 async function main(argv: string[]): Promise<number> {

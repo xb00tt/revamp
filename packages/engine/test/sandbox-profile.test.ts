@@ -10,7 +10,10 @@ import {
   profileName,
   profilePattern,
   profileText,
+  PROFILE_DIR,
+  realSandboxEnv,
   removeHelper,
+  sandboxProfileNames,
   userNamespacesRestricted,
 } from "../src/sandbox-profile.ts";
 import { revampPaths } from "../src/paths.ts";
@@ -98,6 +101,48 @@ test("removeHelper unloads, then removes the file", () => {
     removeHelper("revamp-hydra"),
     `${header}apparmor_parser -R '/etc/apparmor.d/revamp-hydra' || true\nrm -f '/etc/apparmor.d/revamp-hydra'\n`,
   );
+});
+
+test("removeHelper takes several names: one header, one unload and remove each", () => {
+  assert.equal(removeHelper(["revamp-hydra"]), removeHelper("revamp-hydra"));
+  assert.equal(
+    removeHelper(["revamp-hydra", "revamp-hydra-bob"]),
+    `${header}apparmor_parser -R '/etc/apparmor.d/revamp-hydra' || true\nrm -f '/etc/apparmor.d/revamp-hydra'\n` +
+      `apparmor_parser -R '/etc/apparmor.d/revamp-hydra-bob' || true\nrm -f '/etc/apparmor.d/revamp-hydra-bob'\n`,
+  );
+  assert.throws(() => removeHelper([]), /no profile/);
+  assert.throws(() => removeHelper(["revamp-hydra", "hydra"]), /profile name must start with "revamp-": hydra/);
+  assert.throws(() => removeHelper(["revamp-hydra", "revamp-a b"]), /unsafe profile name/);
+});
+
+test("realSandboxEnv reads profiles from the given dir, other paths as they are", () => {
+  const dir = tmp();
+  writeFileSync(join(dir, "revamp-hydra"), "profile text");
+  const other = join(tmp(), "other");
+  writeFileSync(other, "elsewhere");
+  const env = realSandboxEnv(dir);
+  assert.equal(env.readFile(join(PROFILE_DIR, "revamp-hydra")), "profile text");
+  assert.equal(env.fileExists(join(PROFILE_DIR, "revamp-hydra")), true);
+  assert.equal(env.fileExists(join(PROFILE_DIR, "revamp-missing")), false);
+  assert.equal(env.readFile(join(PROFILE_DIR, "revamp-missing")), undefined);
+  assert.equal(env.readFile(other), "elsewhere");
+  assert.equal(env.fileExists(other), true);
+  assert.equal(env.fileExists(`${PROFILE_DIR}x/revamp-hydra`), false); // only /etc/apparmor.d/… is mapped, not a lookalike prefix
+});
+
+test("realSandboxEnv defaults to $REVAMP_PROFILE_DIR, then /etc/apparmor.d; the helpers always write /etc/apparmor.d", (t) => {
+  const dir = tmp();
+  writeFileSync(join(dir, "revamp-hydra"), "x");
+  const saved = process.env.REVAMP_PROFILE_DIR;
+  t.after(() => (saved === undefined ? delete process.env.REVAMP_PROFILE_DIR : (process.env.REVAMP_PROFILE_DIR = saved)));
+  process.env.REVAMP_PROFILE_DIR = dir;
+  assert.equal(realSandboxEnv().fileExists(join(PROFILE_DIR, "revamp-hydra")), true);
+  const paths = revampPaths({ HOME: tmp() });
+  assert.deepEqual(sandboxProfileNames(paths, "hydra", { ...realSandboxEnv(), username: "bob" }), ["revamp-hydra-bob", "revamp-hydra-bob"]); // the plain file is not ours
+  assert.match(installHelper("revamp-hydra", "x"), /'\/etc\/apparmor\.d\/revamp-hydra'/);
+  assert.doesNotMatch(removeHelper("revamp-hydra"), new RegExp(dir));
+  process.env.REVAMP_PROFILE_DIR = "";
+  assert.equal(realSandboxEnv().fileExists(join(PROFILE_DIR, "revamp-hydra")), false); // empty means the default
 });
 
 test("profileFileExists looks in the given dir", () => {

@@ -135,7 +135,7 @@ export function runDoctor(paths: Paths, env: DoctorEnv): DoctorCheck[] {
     for (const { appId } of apps) {
       const id = `sandbox-${appId}`;
       const label = `Sandbox profile for ${appId}`;
-      let names: string[];
+      let names: readonly string[];
       try {
         names = sandboxProfileNames(paths, appId, env);
       } catch (e) {

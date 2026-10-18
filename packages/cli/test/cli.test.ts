@@ -6,7 +6,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { installHelper, profileText, type PatchAppResult, type PatchListing } from "@revamp-app/engine";
+import { installHelper, profileText, removeHelper, type PatchAppResult, type PatchListing } from "@revamp-app/engine";
 import { writeDemoBundle } from "../../engine/test/helpers/demo.ts";
 import { formatInstalls, formatPatchList, formatPatchResult, printable } from "../src/format.ts";
 
@@ -18,9 +18,24 @@ function freshHome(): string {
   writeFileSync(join(home, ".config/revamp/sources.json"), '{"sources":[]}\n');
   return home;
 }
-/** `extra` overrides the spawned CLI's environment; an undefined value removes the variable (this machine has DISPLAY=:0). */
+/** Nothing in it: the CLI looks for sandbox profiles here instead of the machine's /etc/apparmor.d. */
+const NO_PROFILES = mkdtempSync(join(tmpdir(), "revamp-cli-profiles-"));
+/**
+ * `extra` overrides the spawned CLI's environment; an undefined value removes the variable (this machine has DISPLAY=:0).
+ * By default there are no profiles and no usable pkexec, so a test can't reach the real /etc/apparmor.d or the real pkexec.
+ */
 const cli = (args: string[], home = freshHome(), input = "", extra: Record<string, string | undefined> = {}) => {
-  const env: Record<string, string | undefined> = { ...process.env, HOME: home, XDG_DATA_HOME: "", XDG_CONFIG_HOME: "", XDG_CACHE_HOME: "", XDG_STATE_HOME: "", ...extra };
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    HOME: home,
+    XDG_DATA_HOME: "",
+    XDG_CONFIG_HOME: "",
+    XDG_CACHE_HOME: "",
+    XDG_STATE_HOME: "",
+    REVAMP_PROFILE_DIR: NO_PROFILES,
+    REVAMP_PKEXEC: "/nonexistent/pkexec",
+    ...extra,
+  };
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
   return spawnSync(process.execPath, [MAIN, ...args], { encoding: "utf8", input, env: env as NodeJS.ProcessEnv });
 };
@@ -243,7 +258,10 @@ test("the timer needs the installed binary", () => {
   assert.match(cli(["timer"]).stderr, /^"timer" needs enable or disable\./);
 });
 
-/** A home with Revamped hydra installed (its menu entry and app dir) and a fake pkexec first on PATH that logs its arguments and exits with `exit`. */
+/**
+ * A home with Revamped hydra installed (its menu entry and app dir), a fake pkexec that logs its arguments and its
+ * standard input (the script) and exits with `exit`, and an empty profile dir standing in for /etc/apparmor.d.
+ */
 function sandboxHome(exit = 0) {
   const home = freshHome();
   const data = join(home, ".local/share/revamp");
@@ -253,12 +271,16 @@ function sandboxHome(exit = 0) {
   const bin = join(home, "bin");
   mkdirSync(bin);
   const log = join(home, "pkexec.log");
-  writeFileSync(join(bin, "pkexec"), `#!/bin/sh\necho "$@" >> '${log}'\nexit ${exit}\n`);
+  writeFileSync(join(bin, "pkexec"), `#!/bin/sh\necho "$@" >> '${log}'\ncat >> '${log}'\nexit ${exit}\n`);
   chmodSync(join(bin, "pkexec"), 0o755);
-  const env = { PATH: `${bin}:${process.env.PATH}`, DISPLAY: ":0" };
+  const profiles = join(home, "apparmor.d");
+  mkdirSync(profiles);
+  const env = { REVAMP_PKEXEC: join(bin, "pkexec"), REVAMP_PROFILE_DIR: profiles, DISPLAY: ":0" };
   const pattern = `${data}/apps/hydra/*/hydralauncher`;
-  return { home, log, env, pattern, helper: join(home, ".local/state/revamp/sandbox/revamp-hydra.sh") };
+  const script = installHelper("revamp-hydra", profileText("revamp-hydra", pattern));
+  return { home, data, log, env, profiles, pattern, script, helper: join(home, ".local/state/revamp/sandbox/revamp-hydra.sh") };
 }
+const noDisplay = (env: Record<string, string>) => ({ ...env, DISPLAY: undefined, WAYLAND_DISPLAY: undefined });
 
 test("sandbox needs an installed app", () => {
   const r = cli(["sandbox", "hydra"]);
@@ -266,15 +288,16 @@ test("sandbox needs an installed app", () => {
   assert.match(r.stderr, /hydra is not installed/);
 });
 
-test("sandbox writes the helper and runs it through pkexec", () => {
+test("sandbox shows the script, pipes it to pkexec's shell and leaves no helper file", () => {
   const s = sandboxHome();
   const r = cli(["sandbox", "hydra", "--yes"], s.home, "", s.env);
   assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.ok(r.stdout.includes(s.script.trimEnd()), r.stdout); // the whole script root will run, profile included
   assert.ok(r.stdout.includes(`profile revamp-hydra "${s.pattern}"`), r.stdout);
-  assert.ok(r.stdout.includes("This writes /etc/apparmor.d/revamp-hydra and runs: apparmor_parser -r /etc/apparmor.d/revamp-hydra  (helper: "), r.stdout);
+  assert.ok(r.stdout.includes("This writes /etc/apparmor.d/revamp-hydra and runs: apparmor_parser -r /etc/apparmor.d/revamp-hydra\n"), r.stdout);
   assert.match(r.stdout, /Installed and loaded \/etc\/apparmor\.d\/revamp-hydra\. Start hydra \(Revamped\) again\./);
-  assert.equal(readFileSync(s.log, "utf8"), `/bin/sh ${s.helper}\n`);
-  assert.equal(readFileSync(s.helper, "utf8"), installHelper("revamp-hydra", profileText("revamp-hydra", s.pattern)));
+  assert.equal(readFileSync(s.log, "utf8"), `/bin/sh -s\n${s.script}`);
+  assert.equal(existsSync(s.helper), false); // nothing user-writable that root runs
 });
 
 test("sandbox reports a cancelled administrator prompt", () => {
@@ -291,31 +314,98 @@ test("sandbox shows pkexec's other failures with the sudo way out", () => {
   assert.equal(r.status, 1);
   assert.match(r.stdout, /pkexec failed \(exit 3\)/);
   assert.match(r.stdout, /sudo sh .*revamp-hydra\.sh/);
+  assert.equal(readFileSync(s.helper, "utf8"), s.script);
 });
 
-test("sandbox without a display gives the sudo command and never calls pkexec", () => {
+test("sandbox without a display writes the helper for sudo and never calls pkexec", () => {
   const s = sandboxHome();
-  const r = cli(["sandbox", "hydra", "--yes"], s.home, "", { ...s.env, DISPLAY: undefined, WAYLAND_DISPLAY: undefined });
+  const r = cli(["sandbox", "hydra", "--yes"], s.home, "", noDisplay(s.env));
   assert.equal(r.status, 1);
   assert.match(r.stdout, /Run it with sudo instead:\n {2}sudo sh .*revamp-hydra\.sh/);
   assert.equal(existsSync(s.log), false);
-  assert.equal(existsSync(s.helper), true);
+  assert.equal(readFileSync(s.helper, "utf8"), s.script);
 });
 
-test("answering no to the sandbox prompt changes nothing", () => {
+test("answering no to the sandbox prompt changes nothing but leaves the helper for sudo", () => {
   const s = sandboxHome();
   const r = cli(["sandbox", "hydra"], s.home, "n\n", s.env);
   assert.equal(r.status, 1);
+  assert.ok(r.stdout.includes(s.script.trimEnd()), r.stdout); // shown before the question
   assert.match(r.stdout, /Write it with administrator rights\? \[y\/N\] /);
   assert.match(r.stdout, /Nothing changed\. Run it with sudo instead:\n {2}sudo sh .*revamp-hydra\.sh/);
   assert.equal(existsSync(s.log), false);
+  assert.equal(readFileSync(s.helper, "utf8"), s.script);
 });
 
-test("uninstall finishes without a profile line when /etc/apparmor.d has none", () => {
+test("sandbox reuses this user's suffixed profile instead of adding a second one for the same path", () => {
+  const s = sandboxHome();
+  const user = (spawnSync("id", ["-un"], { encoding: "utf8" }).stdout as string).trim();
+  writeFileSync(join(s.profiles, `revamp-hydra-${user}`), `profile revamp-hydra-${user} "${s.pattern}" flags=(unconfined) {}`);
+  const r = cli(["sandbox", "hydra", "--yes"], s.home, "", s.env);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.equal(readFileSync(s.log, "utf8"), `/bin/sh -s\n${installHelper(`revamp-hydra-${user}`, profileText(`revamp-hydra-${user}`, s.pattern))}`);
+});
+
+test("uninstall finishes without a profile line when there is no profile", () => {
   const s = sandboxHome();
   const r = cli(["uninstall", "hydra", "--yes"], s.home, "", s.env);
   assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, "");
   assert.equal(r.stdout, "Removed Revamped hydra.\n");
-  assert.equal(existsSync(join(s.home, ".local/share/revamp/apps/hydra")), false);
+  assert.equal(existsSync(join(s.data, "apps/hydra")), false);
+  assert.equal(existsSync(s.log), false);
+});
+
+/** sandboxHome plus this user's profile file, as a past `revamp sandbox hydra` leaves it. */
+function withProfile(exit = 0) {
+  const s = sandboxHome(exit);
+  writeFileSync(join(s.profiles, "revamp-hydra"), profileText("revamp-hydra", s.pattern));
+  return s;
+}
+
+test("uninstall offers to remove the profile and pipes removeHelper's script to pkexec", () => {
+  const s = withProfile();
+  const r = cli(["uninstall", "hydra", "--yes"], s.home, "", s.env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /A sandbox profile \/etc\/apparmor\.d\/revamp-hydra remains\./);
+  assert.ok(r.stdout.includes(removeHelper("revamp-hydra").trimEnd()), r.stdout);
+  assert.match(r.stdout, /Removed \/etc\/apparmor\.d\/revamp-hydra\./);
+  assert.equal(readFileSync(s.log, "utf8"), `/bin/sh -s\n${removeHelper("revamp-hydra")}`);
+});
+
+test("uninstall keeps going when the profile prompt is cancelled, and says the profile stays", () => {
+  const s = withProfile(126);
+  const r = cli(["uninstall", "hydra", "--yes"], s.home, "", s.env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /The administrator prompt was cancelled; the profile stays\./);
+  assert.equal(existsSync(join(s.data, "apps/hydra")), false);
+});
+
+test("uninstall without --yes asks first, and a no leaves the profile with the sudo way out", () => {
+  const s = withProfile();
+  const r = cli(["uninstall", "hydra"], s.home, "y\nn\n", s.env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Remove it with administrator rights\? \[y\/N\] /);
+  assert.match(r.stdout, /It stays\. Run it with sudo instead:\n {2}sudo sh .*revamp-hydra-remove\.sh/);
+  assert.equal(existsSync(s.log), false);
+  assert.equal(readFileSync(join(s.home, ".local/state/revamp/sandbox/revamp-hydra-remove.sh"), "utf8"), removeHelper("revamp-hydra"));
+});
+
+test("uninstall removes both of this user's profiles in one script and says them", () => {
+  const s = withProfile();
+  const user = (spawnSync("id", ["-un"], { encoding: "utf8" }).stdout as string).trim();
+  writeFileSync(join(s.profiles, `revamp-hydra-${user}`), "x");
+  const r = cli(["uninstall", "hydra"], s.home, "y\nn\n", s.env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Remove them with administrator rights\? \[y\/N\] /);
+  assert.match(r.stdout, /They stay\. Run it with sudo instead:/);
+  assert.equal(readFileSync(join(s.home, ".local/state/revamp/sandbox/revamp-hydra-remove.sh"), "utf8"), removeHelper(["revamp-hydra", `revamp-hydra-${user}`]));
+});
+
+test("uninstall without a display leaves the profile and the sudo command", () => {
+  const s = withProfile();
+  const r = cli(["uninstall", "hydra", "--yes"], s.home, "", noDisplay(s.env));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /sudo sh .*revamp-hydra-remove\.sh/);
   assert.equal(existsSync(s.log), false);
 });

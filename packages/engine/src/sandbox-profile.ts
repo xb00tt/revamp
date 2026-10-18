@@ -34,29 +34,38 @@ export interface SandboxProfileEnv {
   username: string;
 }
 
-/** The real machine; the username falls back to $USER when the user database can't be read. */
-export function realSandboxEnv(): SandboxProfileEnv {
+/**
+ * The real machine; the username falls back to $USER when the user database can't be read.
+ * `profileDir` (default $REVAMP_PROFILE_DIR, else /etc/apparmor.d) is where reads of /etc/apparmor.d/<file> look instead:
+ * a test seam for reading only. installHelper/removeHelper keep the PROFILE_DIR constant, so the knob can never move where root writes.
+ */
+export function realSandboxEnv(profileDir: string = process.env.REVAMP_PROFILE_DIR || PROFILE_DIR): SandboxProfileEnv {
   let username = process.env.USER ?? "";
   try {
     username = userInfo().username;
   } catch {
     // keep $USER
   }
+  const at = (path: string) => (path.startsWith(`${PROFILE_DIR}/`) ? join(profileDir, path.slice(PROFILE_DIR.length + 1)) : path);
   return {
     readFile: (path) => {
       try {
-        return readFileSync(path, "utf8");
+        return readFileSync(at(path), "utf8");
       } catch {
         return undefined;
       }
     },
-    fileExists: existsSync,
+    fileExists: (path) => existsSync(at(path)),
     username,
   };
 }
 
 /** The profile names that count as this user's for an app: the plain one unless another user's profile holds it, and the suffixed one an earlier run may have used. Throws on an unsafe app id or username. */
-export function sandboxProfileNames(paths: Paths, appId: string, env: Pick<SandboxProfileEnv, "readFile" | "username">): string[] {
+export function sandboxProfileNames(
+  paths: Paths,
+  appId: string,
+  env: Pick<SandboxProfileEnv, "readFile" | "username">,
+): readonly [computed: string, suffixed: string] {
   const base = `revamp-${assertSafeName("app id", appId)}`; // before any path is built from it
   assertSafeName("user", env.username);
   return [profileName(appId, env.readFile(join(PROFILE_DIR, base)), paths.data, env.username), `${base}-${env.username}`];
@@ -112,10 +121,11 @@ export function installHelper(name: string, text: string): string {
   );
 }
 
-/** sh script, run as root: unload the profile, then delete its file. */
-export function removeHelper(name: string): string {
-  const path = profilePath(name);
-  return `${HEADER}apparmor_parser -R '${path}' || true\nrm -f '${path}'\n`;
+/** sh script, run as root: unload each profile, then delete its file. */
+export function removeHelper(names: string | string[]): string {
+  const list = typeof names === "string" ? [names] : names;
+  if (list.length === 0) throw new Error("no profile to remove");
+  return HEADER + list.map((name) => profilePath(name)).map((path) => `apparmor_parser -R '${path}' || true\nrm -f '${path}'\n`).join("");
 }
 
 export function profileFileExists(name: string, dir: string = PROFILE_DIR): boolean {
