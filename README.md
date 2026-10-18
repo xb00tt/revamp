@@ -41,7 +41,7 @@ revamp patch hydra
 Revamp needs Node 26 (the repo refuses older versions):
 
 ```bash
-export PATH="$HOME/.local/node-26/bin:$PATH"
+export PATH="$HOME/.local/node26/bin:$PATH"
 npm install
 npm test
 npm run typecheck

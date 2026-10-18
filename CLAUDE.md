@@ -8,10 +8,10 @@ Revamp is "Morphe for Linux Electron apps": it downloads an official release `.d
 
 ## Commands
 
-Node 26 (`~/.local/node-26`) and Rust (`~/.cargo`, for the GUI's Tauri shell) are installed per-user only; every command needs them first (`.npmrc` has `engine-strict=true`):
+Node 26 (`~/.local/node26`) and Rust (`~/.cargo`, for the GUI's Tauri shell) are installed per-user only; every command needs them first (`.npmrc` has `engine-strict=true`):
 
 ```bash
-export PATH="$HOME/.cargo/bin:$HOME/.local/node-26/bin:$PATH"
+export PATH="$HOME/.cargo/bin:$HOME/.local/node26/bin:$PATH"
 npm test                                      # all unit tests (node --test, TS runs natively, no network)
 npm run typecheck                             # two tsc --noEmit projects: the repo and the GUI
 node --test packages/engine/test/api.test.ts  # one test file
