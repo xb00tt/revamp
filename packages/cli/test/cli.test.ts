@@ -211,6 +211,21 @@ test("update with no app tries every installed app and exits 1 when they fail", 
   for (const id of ["alpha", "beta"]) assert.match(r.stderr, new RegExp(`^revamp: ${id}: no bundle source has "${id}"`, "m"));
 });
 
+test("only patch takes --dry-run: update and the rest refuse it before doing anything", () => {
+  const home = mkdtempSync(join(tmpdir(), "revamp-cli-bare-")); // no sources.json: a seed here would reach GitHub
+  const dir = join(home, ".local/share/revamp/apps/demo");
+  mkdirSync(join(dir, "1.0.0"), { recursive: true });
+  writeFileSync(join(dir, "1.0.0/revamp.json"), JSON.stringify({ installedAt: "2026-10-14T00:00:00.000Z" }));
+  symlinkSync("1.0.0", join(dir, "current"));
+  for (const args of [["update", "--dry-run"], ["update", "demo", "--dry-run"], ["uninstall", "demo", "--dry-run", "--yes"]]) {
+    const r = cli(args, home);
+    assert.equal(r.status, 1);
+    assert.equal(r.stderr, `revamp: "${args[0]}" has no --dry-run; use revamp patch <app> --dry-run\n`);
+  }
+  assert.equal(existsSync(join(home, ".config/revamp/sources.json")), false);
+  assert.equal(existsSync(join(dir, "current")), true);
+});
+
 test("the sources prompt can't get fake lines from newlines in one-line bundle fields", () => {
   const home = freshHome();
   const bundle = join(home, "evil.mjs");
