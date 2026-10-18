@@ -459,3 +459,23 @@ test("uninstall without a display shows the script, then leaves the profile and 
   assert.match(r.stdout, /sudo sh .*revamp-hydra-remove\.sh/);
   assert.equal(existsSync(s.log), false);
 });
+
+test("doctor reports the checks that don't depend on the machine, and exits 1 or 2", () => {
+  const r = cli(["doctor"]);
+  // Fixable (1) or broken (2) depending on the machine's PATH and timer; never 0 here, because the fresh home has no source.
+  assert.ok(r.status === 1 || r.status === 2, `${r.status}\n${r.stdout}${r.stderr}`);
+  assert.match(r.stdout, /^✓ Platform: linux x64$/m);
+  assert.match(r.stdout, /^✗ Bundle sources: none/m);
+  assert.match(r.stdout, /^    Fix: revamp sources add xb00tt\/revamp-patches$/m);
+  assert.match(r.stdout, /^✓ Revamped apps: none yet$/m);
+  assert.doesNotMatch(r.stdout, /glibc \(window\)/); // no window in the fresh home
+});
+
+test("doctor indents the extra lines of a detail, so a source's name can't fake a check line", () => {
+  const home = freshHome();
+  const source = { location: "xb00tt/revamp-patches", name: "Evil\n✓ Fake: ok", version: "1.0.0", sha256: "a" };
+  writeFileSync(join(home, ".config/revamp/sources.json"), JSON.stringify({ sources: [source] }));
+  const r = cli(["doctor"], home);
+  assert.match(r.stdout, /^✓ Bundle sources: xb00tt\/revamp-patches Evil\n    ✓ Fake: ok 1\.0\.0\n    never checked$/m);
+  assert.doesNotMatch(r.stdout, /^✓ Fake/m);
+});

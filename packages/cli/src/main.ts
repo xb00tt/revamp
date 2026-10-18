@@ -10,6 +10,7 @@ import {
   checkMessage,
   checkUpdates,
   DEFAULT_SOURCE,
+  doctorExitCode,
   installedExecutable,
   installHelper,
   listInstalls,
@@ -21,11 +22,13 @@ import {
   profilePattern,
   profileText,
   PROFILE_DIR,
+  realDoctorEnv,
   realSandboxEnv,
   removeHelper,
   removeSource,
   revampPaths,
   rollback,
+  runDoctor,
   uninstall,
   updateApp,
   userNamespacesRestricted,
@@ -264,6 +267,16 @@ async function main(argv: string[]): Promise<number> {
         printError(`revamp: couldn't check for a sandbox profile: ${e instanceof Error ? e.message : String(e)}`);
       }
       return 0;
+    }
+    case "doctor": {
+      const checks = runDoctor(paths, realDoctorEnv());
+      // Extra detail lines (sources, apps) are indented, so a source's name can't fake a check line of its own.
+      const indent = (text: string) => text.replaceAll("\n", "\n    ");
+      for (const c of checks) {
+        print(`${c.severity === "ok" ? "✓" : "✗"} ${c.label}: ${indent(c.detail)}`);
+        if (c.fix) print(`    Fix: ${indent(c.fix)}`);
+      }
+      return doctorExitCode(checks);
     }
     case "sandbox":
       return sandbox(paths, needApp(), values.yes ?? false);
