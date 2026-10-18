@@ -1,6 +1,6 @@
 [package]
 name = "revamp-gui"
-version = "0.1.0"
+version = "1.0.0"
 description = "The Revamp window: a Tauri shell around `revamp serve`"
 edition = "2021"
 license = "GPL-3.0-only"
