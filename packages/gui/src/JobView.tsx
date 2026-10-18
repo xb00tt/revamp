@@ -1,52 +1,43 @@
 import { useEffect, useRef, useState } from "react";
-import { finishJob, JOB_STEPS, jobEvent, plain, startJob, type JobLine, type JobOutcome, type JobState } from "./model.ts";
+import { finishJob, JOB_STEPS, jobEvent, plain, startJob, type JobLine, type JobOutcome } from "./model.ts";
 import { notifyDone } from "./platform.ts";
 import type { Rpc } from "./rpc.ts";
 
-/** One job of a request: a patch or dry run. */
-export interface JobRun {
-  label: string;
-  dryRun: boolean;
-  call: () => Promise<JobOutcome>;
-}
-
+/** A patch or dry run. */
 export interface JobRequest {
   title: string;
   back: string;
-  runs: JobRun[];
+  dryRun: boolean;
+  call: () => Promise<JobOutcome>;
 }
 
 const STEP_LABEL = { download: "Download", extract: "Extract", patch: "Patch", repack: "Repack", install: "Install" };
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const minutes = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 
-/** Takes over the window while a request's jobs run, one after another, then shows how each ended. */
+/** Takes over the window while the job runs, then shows how it ended. */
 export function JobView({ rpc, request, onDone }: { rpc: Rpc; request: JobRequest; onDone: () => void }) {
-  const [jobs, setJobs] = useState<Array<{ label: string; state: JobState }>>([]);
+  const [job, setJob] = useState(() => startJob(request.dryRun, Date.now()));
   const [now, setNow] = useState(Date.now());
-  const started = useRef(false); // StrictMode runs effects twice in development; the jobs must run once
+  const started = useRef(false); // StrictMode runs effects twice in development; the job must run once
   const log = useRef<HTMLDivElement>(null);
   const following = useRef(true); // the log follows new lines unless the user scrolled up to read
-  const running = jobs.length < request.runs.length || jobs.some((j) => !j.state.done);
+  const running = !job.done;
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     void (async () => {
-      for (const [i, run] of request.runs.entries()) {
-        const update = (f: (s: JobState) => JobState) => setJobs((all) => all.map((j, k) => (k === i ? { ...j, state: f(j.state) } : j)));
-        setJobs((all) => [...all, { label: plain(run.label), state: startJob(run.dryRun, Date.now()) }]);
-        const stop = rpc.onNotification((method, params) => update((s) => jobEvent(s, method, params, Date.now())));
-        let outcome: JobOutcome;
-        try {
-          outcome = await run.call();
-        } catch (e) {
-          outcome = { error: (e as Error).message };
-        } finally {
-          stop();
-        }
-        update((s) => finishJob(s, outcome, Date.now()));
+      const stop = rpc.onNotification((method, params) => setJob((s) => jobEvent(s, method, params, Date.now())));
+      let outcome: JobOutcome;
+      try {
+        outcome = await request.call();
+      } catch (e) {
+        outcome = { error: (e as Error).message };
+      } finally {
+        stop();
       }
+      setJob((s) => finishJob(s, outcome, Date.now()));
     })();
   }, [rpc, request]);
 
@@ -56,47 +47,42 @@ export function JobView({ rpc, request, onDone }: { rpc: Rpc; request: JobReques
     return () => clearInterval(timer);
   }, [running]);
 
-  const lines = jobs.flatMap((j) => (request.runs.length > 1 ? [{ at: j.state.started, kind: "info" as const, text: `── ${j.label} ──` }, ...j.state.lines] : j.state.lines));
   useEffect(() => {
     if (log.current && following.current) log.current.scrollTop = log.current.scrollHeight;
-  }, [lines.length]);
+  }, [job.lines.length]);
   const onScroll = () => {
     const el = log.current!;
     following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
   };
 
   useEffect(() => {
-    if (running || jobs.length === 0) return;
-    const bad = jobs.filter((j) => !j.state.ok).length;
-    void notifyDone(jobs.length === 1 ? jobs[0].state.summary : bad ? `${request.title}: ${bad} of ${jobs.length} had problems` : `${request.title}: done`);
+    if (!running) void notifyDone(job.summary);
   }, [running]);
 
-  const current = jobs.at(-1)?.state;
-  const steps = JOB_STEPS.filter((s) => !current?.dryRun || (s !== "repack" && s !== "install"));
+  const steps = JOB_STEPS.filter((s) => !job.dryRun || (s !== "repack" && s !== "install"));
   const text = (l: JobLine) => `${clock(l.at)}  ${l.text}`;
-  const copy = () => void navigator.clipboard.writeText([plain(request.title), ...lines.map(text)].join("\n"));
-  const firstStart = jobs[0]?.state.started ?? now;
-  const lastEnd = Math.max(...jobs.flatMap((j) => j.state.lines.map((l) => l.at)), firstStart);
+  const copy = () => void navigator.clipboard.writeText([plain(request.title), ...job.lines.map(text)].join("\n"));
+  const lastEnd = Math.max(...job.lines.map((l) => l.at), job.started);
 
   return (
     <div className="job">
       <header className="job-head">
         <h2>{plain(request.title)}</h2>
-        <span className="muted">{minutes((running ? now : lastEnd) - firstStart)}</span>
+        <span className="muted">{minutes((running ? now : lastEnd) - job.started)}</span>
       </header>
-      <div className="job-now muted">{current ? `${jobs.length > 1 || request.runs.length > 1 ? `${jobs.at(-1)!.label}: ` : ""}${current.done ? current.summary : `${current.percent}%`}` : "Starting…"}</div>
+      <div className="job-now muted">{job.done ? job.summary : `${job.percent}%`}</div>
       <div className="bar">
-        <div style={{ width: `${current?.done && current.ok ? 100 : (current?.percent ?? 0)}%` }} className={current?.done && !current.ok ? "bad" : ""} />
+        <div style={{ width: `${job.done && job.ok ? 100 : job.percent}%` }} className={job.done && !job.ok ? "bad" : ""} />
       </div>
       <ol className="steps">
         {steps.map((s) => (
-          <li key={s} className={current?.steps[s] ?? "todo"}>
-            {current?.steps[s] === "done" ? "✓" : current?.steps[s] === "active" ? "●" : "○"} {STEP_LABEL[s]}
+          <li key={s} className={job.steps[s]}>
+            {job.steps[s] === "done" ? "✓" : job.steps[s] === "active" ? "●" : "○"} {STEP_LABEL[s]}
           </li>
         ))}
       </ol>
       <div className="log" ref={log} onScroll={onScroll}>
-        {lines.map((l, i) => (
+        {job.lines.map((l, i) => (
           <div key={i} className={`line ${l.kind}`}>
             <span className="at">{clock(l.at)}</span> {l.text}
           </div>

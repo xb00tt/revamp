@@ -205,22 +205,16 @@ export function jobEvent(s: JobState, method: string, params: unknown, now: numb
   return { ...next, percent: percentOf(next) };
 }
 
-export interface JobOutcome {
-  result?: PatchAppResult;
-  report?: string;
-  /** Set when there was nothing to do (an update with no newer release or bundle). */
-  upToDate?: string;
-  error?: string;
-}
+/** job.patch's reply, or why the call failed. */
+export type JobOutcome = { result: PatchAppResult; report: string } | { error: string };
 
 /** The job's end: each named patch's result, notes and the summary line (the first line of the CLI's report). */
 export function finishJob(s: JobState, outcome: JobOutcome, now: number): JobState {
   const lines = [...s.lines];
   const add = (kind: JobLine["kind"], text: string) => void lines.push({ at: now, kind, text: plain(text) });
   const end = (ok: boolean, summary: string, percent = s.percent): JobState => ({ ...s, lines, done: true, ok, summary: plain(summary), percent });
-  if (outcome.error) return add("fail", outcome.error), end(false, outcome.error);
+  if ("error" in outcome) return add("fail", outcome.error), end(false, outcome.error);
   const r = outcome.result;
-  if (!r) return add("summary", outcome.upToDate ?? "Nothing to do"), end(true, outcome.upToDate ?? "Nothing to do", 100);
   for (const x of r.results) {
     if (x.status === "applied" && !x.internal) add("ok", `✓ ${x.name}${x.required ? " (required)" : ""}`);
     else if (x.status === "failed") add("fail", `✗ ${patchName(x.name)}${x.message ? `: ${x.message}` : ""}`);
@@ -228,7 +222,7 @@ export function finishJob(s: JobState, outcome: JobOutcome, now: number): JobSta
   }
   if (r.aborted) add("fail", `Stopped: ${r.aborted}`);
   for (const w of r.warnings) add("warn", `Note: ${w}`);
-  const summary = outcome.report?.split("\n")[0] ?? `${r.appName} ${r.version}`;
+  const summary = outcome.report.split("\n")[0];
   add("summary", summary);
   const steps = Object.fromEntries(STEPS.map((step) => [step, s.steps[step] === "todo" && !r.installed ? "todo" : "done"])) as JobState["steps"];
   return { ...end(!r.aborted && r.exitCode === 0, summary, r.aborted ? s.percent : 100), steps: r.aborted ? s.steps : { ...steps, download: "done", extract: "done", patch: "done" } };

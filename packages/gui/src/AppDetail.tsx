@@ -1,13 +1,8 @@
-import type { AppCheck, PatchAppResult } from "@revamp-app/engine";
+import type { AppCheck } from "@revamp-app/engine";
 import { useEffect, useState } from "react";
 import type { JobRequest } from "./JobView.tsx";
-import { forVersion, answerNewPatches, initialToggles, newPatchesNote, optionFlags, plain, releaseNote, selectionFlags, type AppRow, type Listing } from "./model.ts";
+import { forVersion, answerNewPatches, initialToggles, newPatchesNote, optionFlags, plain, releaseNote, selectionFlags, type AppRow, type JobOutcome, type Listing } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
-
-interface Outcome {
-  result: PatchAppResult;
-  report: string;
-}
 
 export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app: AppRow; check: AppCheck | undefined; onChanged: () => Promise<void>; onRun: (job: JobRequest) => void }) {
   const [version, setVersion] = useState<string | undefined>(app.current ?? undefined);
@@ -49,7 +44,8 @@ export function AppDetail({ rpc, app, check, onChanged, onRun }: { rpc: Rpc; app
     onRun({
       title: dryRun ? `Dry run: ${name} ${plain(listing.version)}` : `${name}: ${label}`,
       back: `Back to ${name}`,
-      runs: [{ label: name, dryRun, call: () => rpc.call<Outcome>("job.patch", params) }],
+      dryRun,
+      call: () => rpc.call<JobOutcome>("job.patch", params),
     });
   }
 

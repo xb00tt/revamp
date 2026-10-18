@@ -143,8 +143,6 @@ test("finishing a job lists every named patch, notes and the summary", () => {
     ["warn", "Note: Hydra 4.1.7 is untested."],
     ["summary", "Hydra 4.1.7 (untested): 1/3 patches apply (dry run, nothing installed)"],
   ]);
-  const upToDate = finishJob(startJob(false, 0), { report: undefined, result: undefined, upToDate: "Heroic 2.22.4 is up to date" }, 5);
-  assert.deepEqual([upToDate.ok, upToDate.summary, upToDate.lines.at(-1)?.text], [true, "Heroic 2.22.4 is up to date", "Heroic 2.22.4 is up to date"]);
   const failed = finishJob(startJob(false, 0), { error: "revamp serve stopped: crashed" }, 5);
   assert.deepEqual([failed.ok, failed.summary, failed.lines.at(-1)?.kind], [false, "revamp serve stopped: crashed", "fail"]);
 });
