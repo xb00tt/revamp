@@ -179,11 +179,18 @@ export function installHelper(name: string, text: string): string {
   );
 }
 
-/** sh script, run as root: unload each profile, then delete its file and any `.new` an interrupted install left. */
-export function removeHelper(names: string | string[]): string {
+/**
+ * sh script, run as root: unload each profile, then delete its file and any `.new` an interrupted install left. A name in
+ * `leftovers` has only a `.new` (its profile is gone or never got there): nothing to unload, so just the rm.
+ */
+export function removeHelper(names: string | string[], leftovers: string[] = []): string {
   const list = typeof names === "string" ? [names] : names;
-  if (list.length === 0) throw new Error("no profile to remove");
-  return HEADER + list.map((name) => profilePath(name)).map((path) => `apparmor_parser -R '${path}' || true\nrm -f '${path}' '${path}.new'\n`).join("");
+  if (list.length + leftovers.length === 0) throw new Error("no profile to remove");
+  return (
+    HEADER +
+    list.map((name) => profilePath(name)).map((path) => `apparmor_parser -R '${path}' || true\nrm -f '${path}' '${path}.new'\n`).join("") +
+    leftovers.map((name) => profilePath(name)).map((path) => `rm -f '${path}.new'\n`).join("")
+  );
 }
 
 /** Reads revamp-<appId>.desktop's Exec, returns the executable path relative to <dataDir>/apps/<appId>/current/, or throws. */

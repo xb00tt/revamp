@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { revampPaths, type Paths, type SandboxProfileEnv } from "@revamp-app/engine";
-import { applyProfile, canPrompt, chooseProfileName, existingProfileNames, pkexecPath, planProfile, runAsRoot, sudoInstructions, writeHelper } from "../src/sandbox.ts";
+import { applyProfile, canPrompt, chooseProfileName, existingProfileNames, leftoverTempNames, pkexecPath, planProfile, runAsRoot, sudoInstructions, writeHelper } from "../src/sandbox.ts";
 
 // No test here may look at the machine's /etc/apparmor.d or reach the real pkexec.
 process.env.REVAMP_PROFILE_DIR = mkdtempSync(join(tmpdir(), "revamp-sandbox-profiles-"));
@@ -161,4 +161,17 @@ test("the profiles to remove are this user's existing ones, once each, never ano
   assert.deepEqual(existingProfileNames(paths, "hydra", machine({ "revamp-hydra": other })), []); // amy's
   assert.deepEqual(existingProfileNames(paths, "hydra", machine({ "revamp-hydra": other, "revamp-hydra-u7": "p" })), ["revamp-hydra-u7"]);
   assert.deepEqual(existingProfileNames(paths, "hydra", machine({ "revamp-hydra": mine, "revamp-hydra-u7": "p" })), ["revamp-hydra", "revamp-hydra-u7"]);
+});
+
+test("a .new an interrupted install left counts where its profile is gone, for this user's names only", () => {
+  const paths = tempPaths();
+  const mine = `profile revamp-hydra "${paths.data}/apps/hydra/*/hydralauncher" {}`;
+  const other = `profile revamp-hydra "/home/amy/x/*/hydralauncher" {}`;
+  assert.deepEqual(leftoverTempNames(paths, "hydra", machine({})), []);
+  assert.deepEqual(leftoverTempNames(paths, "hydra", machine({ "revamp-hydra.new": "x" })), ["revamp-hydra"]);
+  assert.deepEqual(leftoverTempNames(paths, "hydra", machine({ "revamp-hydra": mine, "revamp-hydra.new": "x" })), []); // the profile's removal takes its .new too
+  assert.deepEqual(leftoverTempNames(paths, "hydra", machine({ "revamp-hydra": other, "revamp-hydra.new": "x" })), []); // amy's file, and ours would be -u7
+  assert.deepEqual(leftoverTempNames(paths, "hydra", machine({ "revamp-hydra": other, "revamp-hydra-u7.new": "x" })), ["revamp-hydra-u7"]);
+  assert.deepEqual(leftoverTempNames(paths, "hydra", machine({ "revamp-hydra.new": "x", "revamp-hydra-u7.new": "x" })), ["revamp-hydra", "revamp-hydra-u7"]);
+  assert.throws(() => leftoverTempNames(paths, "../x", machine({})), /unsafe/);
 });

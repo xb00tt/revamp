@@ -35,7 +35,8 @@ nothing. It refuses a data folder that another user could change (one under a fo
 profile yet, and the Revamp window shows the same as a banner with a button per app (where no administrator prompt can appear, it
 says "Run revamp sandbox <app> in a terminal" instead of the button). `revamp doctor` checks the whole
 setup (including whether the profile file is in `/etc/apparmor.d/`; whether it is loaded needs root to read) and
-`revamp uninstall <app>` offers to remove the profile.
+`revamp uninstall <app>` offers to remove the profile, and a half-written `<profile>.new` file that an interrupted
+run left (a killed `revamp sandbox` can).
 
 ## Option 1: an AppArmor profile for the Revamped path by hand (needs root once)
 

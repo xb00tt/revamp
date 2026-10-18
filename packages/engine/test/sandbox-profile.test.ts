@@ -148,6 +148,18 @@ test("removeHelper takes several names: one header, one unload and remove each",
   assert.throws(() => removeHelper(["revamp-hydra", "revamp-a b"]), /unsafe profile name/);
 });
 
+test("removeHelper's second list is for a .new left without its profile: nothing to unload, only the rm", () => {
+  assert.equal(removeHelper([], ["revamp-hydra"]), `${header}rm -f '/etc/apparmor.d/revamp-hydra.new'\n`);
+  assert.equal(
+    removeHelper("revamp-hydra", ["revamp-hydra-u7"]),
+    `${header}apparmor_parser -R '/etc/apparmor.d/revamp-hydra' || true\nrm -f '/etc/apparmor.d/revamp-hydra' '/etc/apparmor.d/revamp-hydra.new'\n` +
+      `rm -f '/etc/apparmor.d/revamp-hydra-u7.new'\n`,
+  );
+  assert.throws(() => removeHelper([], []), /no profile/);
+  assert.throws(() => removeHelper([], ["hydra"]), /profile name must start with "revamp-": hydra/);
+  assert.throws(() => removeHelper([], ["revamp-hydra.new"]), /profile name must not end in "\.new"/);
+});
+
 test("realSandboxEnv reads profiles from the given dir, other paths as they are", () => {
   const dir = tmp();
   writeFileSync(join(dir, "revamp-hydra"), "profile text");

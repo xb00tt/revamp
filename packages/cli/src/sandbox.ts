@@ -89,6 +89,11 @@ export function existingProfileNames(paths: Paths, appId: string, env: SandboxPr
   return [...new Set(sandboxProfileNames(paths, appId, env))].filter((n) => present(env, n));
 }
 
+/** This user's profile names whose `.new` an interrupted install left with no profile file beside it (removeHelper's `leftovers`); once each. */
+export function leftoverTempNames(paths: Paths, appId: string, env: SandboxProfileEnv): string[] {
+  return [...new Set(sandboxProfileNames(paths, appId, env))].filter((n) => !present(env, n) && present(env, `${n}.new`));
+}
+
 /** The profile's `abi <abi/4.0>` needs AppArmor 4.0. */
 export const hasAbi4 = (env: SandboxProfileEnv): boolean => env.fileExists(`${PROFILE_DIR}/abi/4.0`);
 export const OLD_APPARMOR = "This system's AppArmor is older than 4.0, which the profile needs; see docs/electron-sandbox.md.";
