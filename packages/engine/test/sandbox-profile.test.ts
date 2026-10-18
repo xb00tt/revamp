@@ -63,6 +63,14 @@ test("profileText refuses a quote, a newline, a control character or a backslash
   assert.throws(() => profileText("revamp hydra", "/x"), /unsafe profile name/);
 });
 
+test("profileText refuses AppArmor glob characters in the data dir but keeps the version wildcard", () => {
+  for (const dir of ["/home/x*", "/home/x?", "/home/x[a]", "/home/x]", "/home/x{a,b}", "/home/x}", "/home/x^", "/home/*"]) {
+    assert.throws(() => profileText("revamp-hydra", profilePattern(dir, "hydra", "hydralauncher")), /unsupported data path/, dir);
+  }
+  assert.throws(() => profileText("revamp-hydra", "/home/x*"), /unsupported data path/);
+  assert.doesNotThrow(() => profileText("revamp-hydra", profilePattern(DATA, "hydra", "bin/heroic")));
+});
+
 const header = "#!/bin/sh\nset -eu\numask 022\n";
 
 test("installHelper writes the file, moves it over and reloads", () => {
@@ -79,6 +87,10 @@ test("installHelper refuses a profile that could end the heredoc early or a name
   assert.throws(() => installHelper("revamp-hydra", "x\nREVAMP_PROFILE\nrm -rf /"), /REVAMP_PROFILE/);
   assert.throws(() => installHelper("../x'; rm", "x"), /unsafe profile name/);
   assert.throws(() => removeHelper("a b"), /unsafe profile name/);
+  // the root-run helpers only touch Revamp-owned profiles
+  assert.throws(() => installHelper("hydra", "x"), /profile name must start with "revamp-": hydra/);
+  assert.throws(() => removeHelper("hydra"), /profile name must start with "revamp-": hydra/);
+  assert.throws(() => removeHelper("revamp-"), /profile name must start with "revamp-"/);
 });
 
 test("removeHelper unloads, then removes the file", () => {

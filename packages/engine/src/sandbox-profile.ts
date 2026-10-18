@@ -31,10 +31,17 @@ export function profilePattern(dataDir: string, appId: string, executable: strin
   return `${dataDir}/apps/${assertSafeName("app id", appId)}/*/${assertSafeRelativePath("executable", executable)}`;
 }
 
-/** The profile file text. Throws `unsupported data path: …` on `"`, `\`, newline or control characters. */
+/**
+ * The profile file text. Throws `unsupported data path: …` on `"`, `\`, newline, control characters or AppArmor glob
+ * characters (`* ? [ ] { } ^`) anywhere but the version wildcard `/*\/` that `profilePattern` puts before the executable.
+ * No trailing newline: installHelper's heredoc adds it; add one when writing the text to a file.
+ */
 export function profileText(name: string, pattern: string): string {
   assertSafeName("profile name", name);
-  if (/["\\\u0000-\u001f\u007f]/.test(pattern)) throw new Error(`unsupported data path: ${JSON.stringify(pattern)}`);
+  // The executable can't hold "*" (assertSafeRelativePath), so the last "/*/" is the version wildcard; judge the rest.
+  const at = pattern.lastIndexOf("/*/");
+  const rest = at < 0 ? pattern : pattern.slice(0, at) + pattern.slice(at + 2);
+  if (/["\\*?[\]{}^\u0000-\u001f\u007f]/.test(rest)) throw new Error(`unsupported data path: ${JSON.stringify(pattern)}`);
   return [
     "abi <abi/4.0>,",
     "include <tunables/global>",
@@ -47,12 +54,17 @@ export function profileText(name: string, pattern: string): string {
 }
 
 const HEADER = "#!/bin/sh\nset -eu\numask 022\n";
-const file = (name: string) => `${PROFILE_DIR}/${assertSafeName("profile name", name)}`;
+/** Where a root-run helper may write: only Revamp-owned profiles, never another package's. */
+function profilePath(name: string): string {
+  assertSafeName("profile name", name);
+  if (!/^revamp-[A-Za-z0-9._+-]+$/.test(name)) throw new Error(`profile name must start with "revamp-": ${name}`);
+  return `${PROFILE_DIR}/${name}`;
+}
 
 /** sh script, run as root: write the profile beside its place, move it over, reload it. */
 export function installHelper(name: string, text: string): string {
   if (text.split("\n").includes("REVAMP_PROFILE")) throw new Error("the profile text would end the script's heredoc (REVAMP_PROFILE)");
-  const path = file(name);
+  const path = profilePath(name);
   return (
     `${HEADER}cat > '${path}.new' <<'REVAMP_PROFILE'\n${text}\nREVAMP_PROFILE\n` +
     `mv -f '${path}.new' '${path}'\napparmor_parser -r '${path}'\n`
@@ -61,7 +73,7 @@ export function installHelper(name: string, text: string): string {
 
 /** sh script, run as root: unload the profile, then delete its file. */
 export function removeHelper(name: string): string {
-  const path = file(name);
+  const path = profilePath(name);
   return `${HEADER}apparmor_parser -R '${path}' || true\nrm -f '${path}'\n`;
 }
 
@@ -82,6 +94,8 @@ export function installedExecutable(paths: Paths, appId: string): string {
   if (!exec) throw new Error(`${desktop} has no Exec line`);
   // First word: quoted (Revamp's own entries) or bare (hand-edited); extra arguments are ignored.
   const word = /^"((?:\\.|[^"\\])*)"/.exec(exec)?.[1] ?? exec.split(/\s/)[0]!;
+  // install.ts today refuses `"`, a backtick, `$` and `\` in install paths and writes `%` raw, so this unescape is for
+  // hand-edited entries and the spec's `%%` form.
   const path = word.replace(/\\(["`$\\])|%%/g, (_, c?: string) => c ?? "%");
   const prefix = `${join(appDir(paths, appId), "current")}/`;
   if (!path.startsWith(prefix)) throw new Error(`the Exec path ${path} in ${desktop} is not under ${prefix}`);
