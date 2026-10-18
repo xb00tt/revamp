@@ -252,6 +252,20 @@ test("sandbox.status skips an app directory it can't name instead of failing for
   });
 });
 
+test("sandbox.status returns an app whose data dir is unsafe with the reason, so the banner doesn't just vanish", async (t) => {
+  const s = await sandboxSetup(t);
+  chmodSync(s.paths.data, 0o777);
+  await withEnv(s.restricted, async () => {
+    const status = (await s.call("sandbox.status")).result;
+    assert.equal(status.restricted, true);
+    const [demo] = status.apps;
+    assert.deepEqual(status.apps, [{ appId: "demo", profile: "revamp-demo", installed: false, error: demo.error }]); // no script: there is nothing safe to run
+    assert.ok(demo.error.startsWith(`unsafe data path ${s.paths.data}: `), demo.error);
+    assert.ok(demo.error.includes("is writable by other users. Set XDG_DATA_HOME to a directory only you can write"), demo.error);
+    assert.equal((await s.call("sandbox.fix", { appId: "demo" })).error?.message.includes("is writable by other users"), true); // the button's own error says the same
+  });
+});
+
 test("sandbox.fix needs an installed app", async (t) => {
   const s = await sandboxSetup(t);
   await withEnv(s.restricted, async () => {

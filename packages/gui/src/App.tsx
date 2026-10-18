@@ -54,7 +54,9 @@ export function App({ rpc }: { rpc: Rpc }) {
     });
 
   const note = sandbox && sandboxNote(sandbox);
-  const banner = sandbox && note ? { note, canPrompt: sandbox.canPrompt, lacking: sandbox.apps.filter((a) => !a.installed) } : null;
+  const lacking = sandbox?.apps.filter((a) => !a.installed) ?? [];
+  // An app with an error has no script and no button: the banner says why instead.
+  const banner = sandbox && note ? { note, canPrompt: sandbox.canPrompt, lacking: lacking.filter((a) => !a.error), blocked: lacking.filter((a) => a.error) } : null;
   // The administrator dialog pkexec opens is the confirmation, so the button just asks.
   const fixSandbox = (appId: string) =>
     task(`Fixing the sandbox for ${appId}…`, async () => {
@@ -107,6 +109,11 @@ export function App({ rpc }: { rpc: Rpc }) {
           {banner && (
             <div className="banner warning">
               {plain(banner.note)}
+              {banner.blocked.map((a) => (
+                <p key={a.appId} className="muted">
+                  {sandboxDetail(a)}
+                </p>
+              ))}
               {banner.canPrompt &&
                 banner.lacking.map((a) => (
                   <div key={a.appId}>
@@ -119,7 +126,7 @@ export function App({ rpc }: { rpc: Rpc }) {
                     )}
                   </div>
                 ))}
-              <div className="row-actions">
+              <div className="row-actions" hidden={banner.lacking.length === 0}>
                 {banner.lacking.map((a) =>
                   banner.canPrompt ? (
                     <button key={a.appId} disabled={busy !== null} title={plain(sandboxDetail(a))} onClick={() => fixSandbox(a.appId)}>

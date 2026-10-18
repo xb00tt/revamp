@@ -99,7 +99,7 @@ export function assertPrivateDataDir(dir: string, uid: number = process.getuid!(
       // anyone else is in that group needs /etc/group. Upgrade path: read its members.
       // Mode bits only: a POSIX ACL granting another user write shows as the mask in the group bits, which this exception passes.
       const others = (st.mode & 0o002) !== 0 || ((st.mode & 0o020) !== 0 && !(st.gid === uid && gid === uid));
-      if (others) throw new Error(`unsafe data path ${dir}: ${d} is writable by other users`);
+      if (others) throw new Error(`unsafe data path ${dir}: ${d} is writable by other users. Set XDG_DATA_HOME to a directory only you can write, e.g. under your home.`);
     }
     if (d === "/") break;
   }

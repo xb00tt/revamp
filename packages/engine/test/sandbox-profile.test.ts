@@ -247,6 +247,8 @@ test("assertPrivateDataDir refuses a dir under a sticky world-writable one: it g
   mkdirSync(data, { mode: 0o700 });
   trustedRoot(t, undefined);
   assert.throws(() => assertPrivateDataDir(data), mentions(`unsafe data path ${data}: ${realpathSync(sticky)} is writable by other users`));
+  // the message names the way out: /tmp can't be made private, another data dir can
+  assert.throws(() => assertPrivateDataDir(data), mentions("is writable by other users. Set XDG_DATA_HOME to a directory only you can write, e.g. under your home."));
   // the system's /tmp itself, when that is where the temp dirs are
   if ((statSync(tmpdir()).mode & 0o1002) === 0o1002) assert.throws(() => assertPrivateDataDir(tmp()), mentions(`: ${realpathSync(tmpdir())} is writable by other users`));
 });

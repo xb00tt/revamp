@@ -29,7 +29,8 @@ system's administrator prompt (`pkexec`). Without a graphical session or `pkexec
 prompt, or when `pkexec` fails, it saves the same script under `~/.local/state/revamp/sandbox/` and prints
 `sudo sh <that file>` for you to run. On a system that doesn't restrict user namespaces it does nothing and asks for
 nothing. It refuses a data folder that another user could change (one under a folder others can write to, such as
-`/tmp`), and an AppArmor older than 4.0.
+`/tmp`; point `XDG_DATA_HOME` at a folder only you can write, such as one under your home), and an AppArmor older
+than 4.0.
 
 `revamp patch` and `revamp update` end with this command when the machine restricts user namespaces and the app has no
 profile yet, and the Revamp window shows the same as a banner with a button per app (where no administrator prompt can appear, it
