@@ -93,11 +93,36 @@ test("a re-patch asks once, and 'on' turns the patch on and saves it", async (t)
   assert.equal(again.exitCode, 0);
 });
 
-test("'off' keeps it off and saves that", async (t) => {
-  const { s, status } = await rePatch("off");
+test("'off' keeps it off, saves that, and isn't asked again", async (t) => {
+  const { s, status, confirmNewPatches, questions } = await rePatch("off");
   t.after(s.close);
   assert.equal(status, "disabled");
   assert.ok(loadSelection(s.paths, "demo").disable.includes("Wave"));
+  await patchApp({ ...s.opts, confirmNewPatches });
+  assert.equal(questions.length, 1);
+});
+
+test("a failed job saves nothing, so the question comes back", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  await patchApp(s.opts);
+  s.writeBundle({ extra: WAVE });
+  const questions: NewPatchesQuestion[] = [];
+  const confirmNewPatches = async (q: NewPatchesQuestion) => (questions.push(q), "on" as const);
+  // GitHub's SHA-256 for 5.0.0 doesn't match the download, so the job fails after the answer.
+  await assert.rejects(patchApp({ ...s.opts, version: "5.0.0", force: true, confirmNewPatches }), /SHA-256 mismatch/);
+  assert.deepEqual(loadSelection(s.paths, "demo"), none);
+  await patchApp({ ...s.opts, confirmNewPatches });
+  assert.equal(questions.length, 2);
+});
+
+test("installedPatchNames leaves out receipt entries that were disabled or incompatible", async (t) => {
+  const ripple = WAVE.replaceAll("Wave", "Ripple").replace("compatibleWith: [{ app }]", 'compatibleWith: [{ app, versions: ["2.0.0"] }]');
+  const s = await setup({ extra: WAVE + ripple });
+  t.after(s.close);
+  const r = await patchApp({ ...s.opts, disable: ["Wave"] });
+  assert.deepEqual(Object.fromEntries(r.results.map((x) => [x.name, x.status])), { "Say goodbye": "applied", Wave: "disabled", Ripple: "incompatible" });
+  assert.deepEqual(installedPatchNames(s.paths, "demo"), ["Say goodbye"]);
 });
 
 test("'off-this-run' keeps it off without saving", async (t) => {

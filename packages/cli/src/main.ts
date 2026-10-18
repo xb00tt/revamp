@@ -116,6 +116,8 @@ async function main(argv: string[]): Promise<number> {
     printError(USAGE);
     return 1;
   }
+  // parseArgs takes every flag for every command, and only patch has a dry run: the others would quietly do it for real.
+  if (values["dry-run"] && command !== "patch") throw new Error(`"${command}" has no --dry-run; use revamp patch <app> --dry-run`);
   const paths = revampPaths();
   const needApp = () => {
     if (!appId) throw new Error(`"${command}" needs an app, e.g. revamp ${command} hydra`);

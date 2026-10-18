@@ -11,7 +11,7 @@ export function newPatchesPrompt(o: {
 }): (q: NewPatchesQuestion) => Promise<NewPatchesAnswer> {
   return async (q) => {
     const out = (line: string) => o.print(printable(line));
-    const width = Math.max(...q.patches.map((p) => p.name.length)) + 2;
+    const width = Math.max(0, ...q.patches.map((p) => p.name.length)) + 2;
     out(`${q.bundle.name} ${q.bundle.version} adds ${q.patches.length} new patch${q.patches.length === 1 ? "" : "es"} for ${q.appName} ${q.version}:`);
     for (const p of q.patches) out(`  ${p.name.padEnd(width)}${p.description}`);
     if (o.yes) return "on";
