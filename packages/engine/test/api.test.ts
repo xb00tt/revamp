@@ -14,6 +14,9 @@ import { revampPaths } from "../src/paths.ts";
 import { tarEntry } from "./helpers/archives.ts";
 import { demoDeb, writeDemoBundle } from "./helpers/demo.ts";
 
+// patchApp asks whether the sandbox profile exists: never in the machine's /etc/apparmor.d.
+process.env.REVAMP_PROFILE_DIR = mkdtempSync(join(tmpdir(), "revamp-profiles-"));
+
 async function setup(bundleOptions: { extra?: string; minEngine?: string } = {}, debExtra: Buffer[] = []) {
   const deb = await demoDeb(debExtra);
   const sha256 = createHash("sha256").update(deb).digest("hex");

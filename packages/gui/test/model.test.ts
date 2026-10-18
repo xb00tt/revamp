@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AppCheck } from "@revamp-app/engine";
-import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, forVersion, answerNewPatches, initialToggles, jobEvent, newPatchesNote, optionFlags, type Listing, type PatchRow, patchName, plain, progressLabel, reclaimable, releaseNote, selectionFlags, startJob } from "../src/model.ts";
+import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, forVersion, answerNewPatches, initialToggles, jobEvent, newPatchesNote, optionFlags, type Listing, type PatchRow, patchName, plain, progressLabel, reclaimable, releaseNote, sandboxDetail, sandboxNote, selectionFlags, startJob } from "../src/model.ts";
 
 const app = (appId: string, current: string | null): AppRow => ({ appId, name: appId, current, versions: [] });
 const check = (appId: string, status: AppCheck["status"], latest = "1.1.0"): AppCheck => ({ appId, appName: appId, current: "1.0.0", latest, status });
@@ -179,4 +179,23 @@ test("the banner names the bundle, the count, the app and the version", () => {
   assert.equal(newPatchesNote(l, "Hydra"), "Revamp official 0.4.0 adds 2 new patches for your Hydra 4.1.6. Turn them on?");
   assert.equal(newPatchesNote({ ...l, ask: ["A"] }, "Hydra"), "Revamp official 0.4.0 adds 1 new patch for your Hydra 4.1.6. Turn them on?");
   assert.equal(newPatchesNote({ ...l, bundle: { name: "Ev\u202Eil", version: "1" }, ask: ["A"] }, "Hydra"), "Evil 1 adds 1 new patch for your Hydra 4.1.6. Turn them on?");
+});
+
+test("the sandbox note appears only when the system restricts user namespaces and an app lacks its profile", () => {
+  const apps = (...installed: boolean[]) => installed.map((i, n) => ({ appId: ["hydra", "heroic"][n], profile: `revamp-${["hydra", "heroic"][n]}`, installed: i }));
+  assert.equal(sandboxNote({ restricted: false, canPrompt: true, apps: apps(false, false) }), null);
+  assert.equal(sandboxNote({ restricted: true, canPrompt: true, apps: apps(true, true) }), null);
+  assert.equal(sandboxNote({ restricted: true, canPrompt: true, apps: [] }), null);
+  assert.equal(
+    sandboxNote({ restricted: true, canPrompt: true, apps: apps(false, true) }),
+    "This system restricts user namespaces, so Revamped apps can't start their sandbox. Revamp can install an AppArmor profile for hydra (one administrator prompt each).",
+  );
+  assert.equal(
+    sandboxNote({ restricted: true, canPrompt: false, apps: apps(false, false) }),
+    "This system restricts user namespaces, so Revamped apps can't start their sandbox. Revamp can install an AppArmor profile for hydra, heroic.",
+  ); // no prompt here: the banner says to run revamp sandbox in a terminal
+});
+
+test("the sandbox detail spells out the file root writes before the system asks for a password", () => {
+  assert.equal(sandboxDetail({ appId: "hydra", profile: "revamp-hydra" }), "Writes /etc/apparmor.d/revamp-hydra and loads it with apparmor_parser; the system asks for your password.");
 });

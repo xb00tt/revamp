@@ -6,6 +6,7 @@ import {
   checkUpdates,
   DEFAULT_SOURCE,
   describe,
+  doctorExitCode,
   listInstalls,
   listPatches,
   loadLastCheck,
@@ -14,12 +15,17 @@ import {
   loadSources,
   patchApp,
   prepareSource,
+  realDoctorEnv,
+  realSandboxEnv,
   refreshSources,
   removeSource,
   removeStorageItem,
   rollback,
+  runDoctor,
+  sandboxProfilePresent,
   skipVersion,
   storageUsage,
+  userNamespacesRestricted,
   installedPatchNames,
   newPatchesToAsk,
   type BundleDescription,
@@ -29,6 +35,7 @@ import {
 } from "@revamp-app/engine";
 import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { formatPatchResult } from "./format.ts";
+import { applyProfile, canPrompt, chooseProfileName, hasAbi4, OLD_APPARMOR, pkexecPath, planProfile } from "./sandbox.ts";
 
 export interface ServeOptions extends UpdateOptions {
   log: (line: string) => void;
@@ -163,6 +170,47 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
     },
     "sources.remove": (p) => removeSource(o.paths, str(p, "location")),
     "sources.refresh": () => refreshSources(o.paths, o),
+    "doctor.run": () => {
+      const checks = runDoctor(o.paths, realDoctorEnv());
+      return { checks, exitCode: doctorExitCode(checks) };
+    },
+    "sandbox.status": () => {
+      const env = realSandboxEnv();
+      const apps = [];
+      const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+      for (const { appId, current } of listInstalls(o.paths)) {
+        if (!current) continue;
+        try {
+          const installed = sandboxProfilePresent(o.paths, appId, env);
+          const app: { appId: string; profile: string; installed: boolean; script?: string } = { appId, profile: chooseProfileName(o.paths, appId, env), installed };
+          // The window shows what root would run before the fix button asks for it.
+          if (!installed) {
+            try {
+              app.script = planProfile(o.paths, appId, env).script;
+            } catch (e) {
+              o.log(`sandbox.status: no script for ${appId}: ${message(e)}`);
+            }
+          }
+          apps.push(app);
+        } catch (e) {
+          o.log(`sandbox.status: skipping ${appId}: ${message(e)}`); // an odd directory name must not hide the banner for the other apps
+        }
+      }
+      return { restricted: userNamespacesRestricted(), canPrompt: canPrompt(process.env, pkexecPath(process.env)), apps };
+    },
+    // The administrator dialog is the confirmation, so nothing asks first. ponytail: pkexec runs synchronously, so serve answers nothing while the dialog is open.
+    "sandbox.fix": (p) => {
+      const appId = str(p, "appId");
+      if (!userNamespacesRestricted()) throw new Error("nothing to do: this system doesn't restrict user namespaces");
+      const env = realSandboxEnv();
+      if (!hasAbi4(env)) throw new Error(OLD_APPARMOR);
+      const plan = planProfile(o.paths, appId, env);
+      const pkexec = pkexecPath(process.env);
+      if (!canPrompt(process.env, pkexec)) throw new Error(plan.sudo());
+      const failure = applyProfile(plan, pkexec);
+      if (failure) throw new Error(failure);
+      return { ok: true, profile: plan.name };
+    },
     "storage.list": () => storageUsage(o.paths),
     "storage.remove": (p) => {
       removeStorageItem(o.paths, str(p, "id"));

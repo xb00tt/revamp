@@ -213,13 +213,16 @@ export function uninstall(paths: Paths, appId: string): void {
   refreshDesktopDatabase(paths);
 }
 
-export function environmentWarnings(appName: string, sysctl = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"): string[] {
+export function environmentWarnings(
+  app: { id: string; name: string },
+  o: { sysctl?: string; profileExists?: () => boolean } = {},
+): string[] {
   // A Flatpak or Snap stock app keeps its settings elsewhere, so this is only true for the official .deb install.
-  const out = [`Revamped ${appName} uses the same settings as a stock ${appName} installed from the official .deb, so only one of them can run at a time.`];
+  const out = [`Revamped ${app.name} uses the same settings as a stock ${app.name} installed from the official .deb, so only one of them can run at a time.`];
   try {
-    if (readFileSync(sysctl, "utf8").trim() === "1") {
+    if (readFileSync(o.sysctl ?? "/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "utf8").trim() === "1" && !o.profileExists?.()) {
       out.push(
-        "This system restricts unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=1), so Electron's sandbox can't start in an app installed in your home folder. See docs/electron-sandbox.md.",
+        `This system restricts unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=1), so Electron's sandbox can't start in an app installed in your home folder. Run once: revamp sandbox ${app.id}`,
       );
     }
   } catch {

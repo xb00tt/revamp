@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SYSCTL_PATH, userNamespacesRestricted } from "../../packages/engine/src/sandbox-profile.ts";
 import { demoDeb, writeDemoBundle } from "../../packages/engine/test/helpers/demo.ts";
 
 const SEA = fileURLToPath(new URL("../../packages/cli/dist/revamp", import.meta.url));
@@ -67,5 +68,14 @@ test(
     const dryRun = revamp("patch", "demo", "--dry-run");
     assert.equal(dryRun.status, 0, dryRun.stderr);
     assert.match(dryRun.stdout, /^Demo 1\.0\.0: 1\/1 patches apply \(dry run, nothing installed\)$/m);
+
+    // The test seams work only from source: the SEA ignores a REVAMP_SYSCTL_PATH that says "restricted". Checked where
+    // the real sysctl says unrestricted; no display, no --yes and an empty stdin keep it from any prompt either way.
+    if (!userNamespacesRestricted(SYSCTL_PATH)) {
+      writeFileSync(join(dir, "restrict"), "1\n");
+      const seam = spawnSync(SEA, ["sandbox", "demo"], { cwd: dir, env: { ...env, REVAMP_SYSCTL_PATH: join(dir, "restrict") }, encoding: "utf8", input: "" });
+      assert.equal(seam.status, 0, seam.stderr);
+      assert.equal(seam.stdout, "This system doesn't restrict user namespaces, so Revamped demo starts without a profile. Nothing to do.\n");
+    }
   },
 );

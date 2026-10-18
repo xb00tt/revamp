@@ -220,6 +220,8 @@ git commit -m "feat(engine): doctor checks as data; the install note names revam
 
 ### Task 3: CLI `sandbox <app>` and the uninstall cleanup
 
+> **As built:** the script is piped to `pkexec /bin/sh -s` on stdin (shown in full first); `<state>/sandbox/<name>.sh` is written only for the `sudo` fallback. The pkexec path is `/usr/bin/pkexec`, or `$REVAMP_PKEXEC` (a test seam); tests' fake pkexec is passed through it, not found on PATH. The code blocks and test lines below that say `pkexec /bin/sh <helper>` or a PATH override predate this.
+
 **Files:**
 - Create: `packages/cli/src/sandbox.ts`, `packages/cli/test/sandbox.test.ts`
 - Modify: `packages/cli/src/main.ts` (new case, `uninstall` case at 162-168, USAGE), `packages/cli/test/cli.test.ts`
@@ -347,7 +349,7 @@ git commit -m "feat(gui): sandbox banner with a fix button per app; serve expose
 - [ ] **Step 1: Docs**
   - `docs/electron-sandbox.md`: replace "Revamp v1 does not change this for you; pick one of the options below" with: Revamp 1.1 does it: `revamp sandbox <app>` (what it writes, the one prompt, `revamp doctor` to check). Keep Option 1 as the manual equivalent and Option 2 (`--no-sandbox`) as the last resort.
   - `README.md`: an **If a Revamped app won't start** line under Install pointing at `revamp doctor` and `revamp sandbox <app>`.
-  - `CLAUDE.md`: `doctor` and `sandbox <app>` in the CLI command list; one bullet under Distribution: "`revamp sandbox` writes `/etc/apparmor.d/revamp-<app>` through `pkexec /bin/sh <state>/sandbox/<name>.sh`; tests never run pkexec (a fake on PATH)".
+  - `CLAUDE.md`: `doctor` and `sandbox <app>` in the CLI command list; one bullet under Distribution: "`revamp sandbox` writes `/etc/apparmor.d/revamp-<app>` through `pkexec /bin/sh <state>/sandbox/<name>.sh`; tests never run pkexec (a fake on PATH)". *(As built: the script goes to `pkexec /bin/sh -s` on stdin, the `.sh` file is only the sudo fallback, and tests use the `REVAMP_PKEXEC` / `REVAMP_PROFILE_DIR` seams; CLAUDE.md says so.)*
   - The v2 spec §5.1: add after the sysctl bullet: "(`/sys/kernel/security/apparmor/profiles` is root-only, so `doctor` reports the profile file in `/etc/apparmor.d/`, not the loaded state.)"
   - `CHANGELOG.md` `## 1.1.0`: `revamp doctor`; `revamp sandbox <app>` for stock Ubuntu 24.04+; the window banner; the install note.
 - [ ] **Step 2: Version 1.1.0** in `packages/{sdk,engine,cli,gui}/package.json`, `engine/src/version.ts`, `src-tauri/tauri.conf.json`, `Cargo.toml`; refresh `package-lock.json` and `Cargo.lock`; fix `test/integration/packages.test.ts` if it names the version.

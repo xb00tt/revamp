@@ -5,8 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, statSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { revampPaths } from "@revamp-app/engine";
-import { installCli, installWindow, onPath } from "../src/install.ts";
+import { onPath, revampPaths } from "@revamp-app/engine";
+import { installCli, installWindow } from "../src/install.ts";
 
 const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
 function setup() {

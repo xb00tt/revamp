@@ -53,6 +53,25 @@ export function releaseNote(c: AppCheck): string {
   return plain(lead ? lead + dryRun : dryRun[0].toUpperCase() + dryRun.slice(1));
 }
 
+/** `sandbox.status`: whether the system restricts user namespaces and which installed apps have their AppArmor profile. */
+export interface SandboxStatus {
+  restricted: boolean;
+  canPrompt: boolean;
+  /** For an app without its profile: the script root would run (absent when serve couldn't plan it). */
+  apps: Array<{ appId: string; profile: string; installed: boolean; script?: string }>;
+}
+
+/** The banner text when installed apps need a profile, else null. */
+export function sandboxNote(status: SandboxStatus): string | null {
+  const missing = status.apps.filter((a) => !a.installed).map((a) => a.appId);
+  if (!status.restricted || missing.length === 0) return null;
+  return `This system restricts user namespaces, so Revamped apps can't start their sandbox. Revamp can install an AppArmor profile for ${missing.join(", ")}${status.canPrompt ? " (one administrator prompt each)" : ""}.`;
+}
+
+/** What root does for this app, shown before the system's password prompt. */
+export const sandboxDetail = (app: { appId: string; profile: string }): string =>
+  `Writes /etc/apparmor.d/${app.profile} and loads it with apparmor_parser; the system asks for your password.`;
+
 /** Bundle-supplied text for the screen: no bidi overrides, zero-width or control characters (newline and tab stay). */
 export const plain = (text = "") => text.replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2069\uFEFF]/g, "");
 

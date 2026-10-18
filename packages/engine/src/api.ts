@@ -10,7 +10,18 @@ import { environmentWarnings, ICON_FILE, installStaged, listInstalls, lockApp, n
 import { ASAR_PATH, patchesForApp, type AppInfo, type BundleDescription, type PatchInfo, type SandboxPatchOutput } from "./job.ts";
 import { assertSafeName, assertSafeRelativePath, releasePath, revampPaths, type Paths } from "./paths.ts";
 import { runSandboxed } from "./sandbox.ts";
+// The install note reads /etc/apparmor.d (read-only), and only when the userns sysctl is 1.
+import { realSandboxEnv, sandboxProfilePresent } from "./sandbox-profile.ts";
 import { compareVersions, ENGINE_VERSION } from "./version.ts";
+
+/** The install note's question; an unsafe app id or data dir can't be judged, so the note stays. */
+function profileInstalled(paths: Paths, appId: string): boolean {
+  try {
+    return sandboxProfilePresent(paths, appId, realSandboxEnv());
+  } catch {
+    return false;
+  }
+}
 
 export interface PatchAppOptions {
   appId: string;
@@ -260,7 +271,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
         },
       });
       saveSelection(paths, app.id, selection);
-      return { ...base, installed: true, installDir, exitCode, warnings: [...warnings, ...environmentWarnings(app.name)] };
+      return { ...base, installed: true, installDir, exitCode, warnings: [...warnings, ...environmentWarnings({ id: app.id, name: app.name }, { profileExists: () => profileInstalled(paths, app.id) })] };
     } finally {
       rmSync(staging, { recursive: true, force: true }); // no-op after a successful install renamed it
     }

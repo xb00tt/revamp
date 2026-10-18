@@ -47,6 +47,22 @@ export {
   type SourceFetchOptions,
 } from "./bundle-sources.ts";
 export { listInstalls, rollback, uninstall, type InstalledApp } from "./install.ts";
+export {
+  assertPrivateDataDir,
+  installedExecutable,
+  installHelper,
+  profilePattern,
+  profileText,
+  PROFILE_DIR,
+  realSandboxEnv,
+  removeHelper,
+  sandboxProfileNames,
+  sandboxProfilePresent,
+  testSeam,
+  userNamespacesRestricted,
+  type SandboxProfileEnv,
+} from "./sandbox-profile.ts";
+export { doctorExitCode, onPath, parseTimerShow, realDoctorEnv, runDoctor } from "./doctor.ts";
 export { removeStorageItem, storageUsage, type StorageItem } from "./storage.ts";
-export { revampPaths, type Paths } from "./paths.ts";
+export { assertSafeName, revampPaths, type Paths } from "./paths.ts";
 export { ENGINE_VERSION } from "./version.ts";

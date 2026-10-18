@@ -82,7 +82,7 @@ Three things make it special:
 
 Prints one line per check, with ✓ / ✗ and the fix:
 - Linux x86_64, glibc ≥ 2.39 (the binary's floor), WebKitGTK 4.1 present (for the window).
-- `kernel.apparmor_restrict_unprivileged_userns`: `0` fine; `1` → "Revamped apps need an AppArmor profile: run `revamp sandbox <app>`" per installed app, and whether the profile is already loaded (`/sys/kernel/security/apparmor/profiles`).
+- `kernel.apparmor_restrict_unprivileged_userns`: `0` fine; `1` → "Revamped apps need an AppArmor profile: run `revamp sandbox <app>`" per installed app, and whether the profile is already loaded (`/sys/kernel/security/apparmor/profiles`). (`/sys/kernel/security/apparmor/profiles` is root-only, so `doctor` reports the profile file in `/etc/apparmor.d/`, not the loaded state.)
 - `~/.local/bin` on PATH; the timer enabled and its last run; each source's pin, whether it's signed, and when it was last checked successfully (from `last-check.json`). `doctor` never fetches anything (decision 16).
 - Installed apps and whether each one's current version has a receipt.
 - The glibc check applies to the window (2.39) only when it's installed; the CLI needs Node's 2.28 (decision 18).
@@ -91,9 +91,9 @@ Exit code 1 when any ✗ is fixable by the user, 2 when something is broken.
 
 ### 5.2 `revamp sandbox <app>` (the fix)
 
-- Writes `/etc/apparmor.d/revamp-<app>` with the profile from v1's doc, with this user's real data path instead of the `/home/*` glob (`profile revamp-<app> "<data>/apps/<app>/*/<executable>" flags=(unconfined) { userns, include if exists <local/revamp-<app>> }`, decision 17), then `apparmor_parser -r` on it, in one `pkexec` invocation of a small helper script that Revamp writes to a temp file and shows the user first. Without a polkit agent (no `DISPLAY`/`WAYLAND_DISPLAY`, or no `pkexec`), it prints the `sudo` commands instead of prompting.
+- Writes `/etc/apparmor.d/revamp-<app>` with the profile from v1's doc, with this user's real data path instead of the `/home/*` glob (`profile revamp-<app> "<data>/apps/<app>/*/<executable>" flags=(unconfined) { userns, include if exists <local/revamp-<app>> }`, decision 17), then `apparmor_parser -r` on it, in one `pkexec` invocation. Revamp prints the whole script first, then pipes it to `pkexec /bin/sh -s` on stdin; nothing root runs is read from a file the user can change. `<state>/sandbox/<name>.sh` is written only for the `sudo` fallback: without a polkit agent (no `DISPLAY`/`WAYLAND_DISPLAY`, or no `pkexec`), when the user declines the question, or when `pkexec` fails, Revamp prints `sudo sh <that file>` instead of prompting.
 - Before the prompt it prints the full profile and the two commands, and asks `Write it with administrator rights? [y/N]` (`--yes` skips).
-- Runs automatically **only** when asked: `revamp patch`/`update` end their report with "This machine restricts user namespaces: run `revamp sandbox hydra` once, or see docs/electron-sandbox.md" when the sysctl is `1` and no profile is loaded. The window shows the same as a banner with a "Fix the sandbox" button that runs the command (the pkexec dialog is the system's).
+- Runs automatically **only** when asked: `revamp patch`/`update` end their report with "This machine restricts user namespaces: run `revamp sandbox hydra` once, or see docs/electron-sandbox.md" when the sysctl is `1` and no profile file is present (the loaded state is root-only to read). The window shows the same as a banner with a "Fix the sandbox" button that runs the command (the pkexec dialog is the system's).
 - The profile's path uses the app id and executable from the bundle, both already `assertSafeName`-checked; the app id is also the file name.
 - `revamp uninstall <app>` mentions the profile and how to remove it (`pkexec rm` + `apparmor_parser -R`), and offers to do it.
 

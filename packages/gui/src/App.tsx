@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { JobProgress } from "@revamp-app/engine";
 import { AppDetail } from "./AppDetail.tsx";
 import { JobView, type JobRequest } from "./JobView.tsx";
-import { badgeFor, checkFor, plain, progressLabel, type AppsList } from "./model.ts";
+import { badgeFor, checkFor, plain, progressLabel, sandboxDetail, sandboxNote, type AppsList, type SandboxStatus } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
 import { Sources } from "./Sources.tsx";
 import { Storage } from "./Storage.tsx";
@@ -16,11 +16,13 @@ export function App({ rpc }: { rpc: Rpc }) {
   const [error, setError] = useState<string | null>(null);
   const [stopped, setStopped] = useState<string | null>(null);
   const [job, setJob] = useState<JobRequest | null>(null);
+  const [sandbox, setSandbox] = useState<SandboxStatus | null>(null);
 
   const refresh = useCallback(async () => {
     const next = await rpc.call<AppsList>("apps.list");
     setList(next);
     setView((v) => v ?? (next.apps[0] ? { kind: "app", appId: next.apps[0].appId } : { kind: "sources" }));
+    setSandbox(await rpc.call<SandboxStatus>("sandbox.status").catch(() => null)); // the banner is a convenience: a failed lookup shows none
   }, [rpc]);
   useEffect(() => void refresh().catch((e: Error) => setError(e.message)), [refresh]);
   useEffect(() => rpc.onClose((reason) => setStopped(`Revamp stopped working: ${reason}. Close and reopen the window.`)), [rpc]);
@@ -51,6 +53,13 @@ export function App({ rpc }: { rpc: Rpc }) {
       }
     });
 
+  const note = sandbox && sandboxNote(sandbox);
+  const banner = sandbox && note ? { note, canPrompt: sandbox.canPrompt, lacking: sandbox.apps.filter((a) => !a.installed) } : null;
+  // The administrator dialog pkexec opens is the confirmation, so the button just asks.
+  const fixSandbox = (appId: string) =>
+    task(`Fixing the sandbox for ${appId}…`, async () => {
+      await rpc.call("sandbox.fix", { appId });
+    });
   if (stopped) return <p className="fatal">{plain(stopped)}</p>;
   if (!list || !view) return <p className="fatal">{plain(error ?? "Starting Revamp…")}</p>;
   const done = () => {
@@ -95,6 +104,34 @@ export function App({ rpc }: { rpc: Rpc }) {
         </aside>
         <main className="main">
           {error && <pre className="banner danger">{plain(error)}</pre>}
+          {banner && (
+            <div className="banner warning">
+              {plain(banner.note)}
+              {banner.canPrompt &&
+                banner.lacking.map((a) => (
+                  <div key={a.appId}>
+                    <p className="muted">{plain(sandboxDetail(a))}</p>
+                    {a.script && (
+                      <details>
+                        <summary>What root will run</summary>
+                        <pre className="report">{plain(a.script)}</pre>
+                      </details>
+                    )}
+                  </div>
+                ))}
+              <div className="row-actions">
+                {banner.lacking.map((a) =>
+                  banner.canPrompt ? (
+                    <button key={a.appId} disabled={busy !== null} title={plain(sandboxDetail(a))} onClick={() => fixSandbox(a.appId)}>
+                      Fix the sandbox for {plain(a.appId)}
+                    </button>
+                  ) : (
+                    <span key={a.appId}>Run revamp sandbox {plain(a.appId)} in a terminal.</span>
+                  ),
+                )}
+              </div>
+            </div>
+          )}
           {view.kind === "sources" && <Sources rpc={rpc} onChanged={refresh} />}
           {view.kind === "storage" && <Storage rpc={rpc} />}
           {selected && <AppDetail key={selected.appId} rpc={rpc} app={selected} check={checkFor(list, selected.appId)} onChanged={refresh} onRun={setJob} />}

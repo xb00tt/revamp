@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
 import { isSea } from "node:sea";
 import { parseArgs } from "node:util";
 import {
@@ -10,24 +10,33 @@ import {
   checkMessage,
   checkUpdates,
   DEFAULT_SOURCE,
+  doctorExitCode,
   listInstalls,
   listPatches,
   loadSources,
+  onPath,
   patchApp,
   prepareSource,
+  PROFILE_DIR,
+  realDoctorEnv,
+  realSandboxEnv,
+  removeHelper,
   removeSource,
   revampPaths,
   rollback,
+  runDoctor,
   uninstall,
   updateApp,
+  userNamespacesRestricted,
   type Paths,
 } from "@revamp-app/engine";
 import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandidate, formatSources, printable } from "./format.ts";
 import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
+import { applyProfile, canPrompt, existingProfileNames, hasAbi4, OLD_APPARMOR, pkexecPath, planProfile, rootFailure, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
 import { serve } from "./serve.ts";
-import { installCli, installWindow, onPath } from "./install.ts";
+import { installCli, installWindow } from "./install.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
 
 // Bundles supply names, notes and messages, and the trust prompt follows them: print nothing that moves the cursor.
@@ -48,18 +57,40 @@ const USAGE = `Usage:
   revamp update [<app>] [--force] [--yes]
   revamp timer enable|disable
   revamp self-install   install this binary (and the window beside it) for your user
+  revamp doctor         check this machine: libraries, the sandbox, PATH, the timer, sources
+  revamp sandbox <app> [--yes]  install the AppArmor profile a Revamped app needs on Ubuntu 24.04+ (one administrator prompt)
   revamp serve        JSON-RPC 2.0 on stdin/stdout, for the GUI
 
 Without --bundle, an app's bundle comes from the first source that has it.`;
 
+// One interface for the whole run: a second one would find the first has already read the lines piped in behind the first
+// answer (`printf 'y\ny\n' | revamp uninstall hydra`). Lines are read through its iterator, which queues them.
+let input: { rl: Interface; lines: AsyncIterator<string>; closed: boolean } | undefined;
+
 async function confirm(question: string): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  // End of input answers no: question() never settles when stdin closes, so race it against the close.
-  const closed = new Promise<string>((resolve) => rl.once("close", () => resolve("")));
-  const answer = await Promise.race([rl.question(`${question} [y/N] `).catch(() => ""), closed]);
-  rl.close();
-  return /^y(es)?$/i.test(answer.trim());
+  if (!input) {
+    // terminal: false leaves the tty in the kernel's canonical mode (echo, backspace, Ctrl-C, Ctrl-D) for the whole run:
+    // readline's own terminal mode is raw, and would stay raw through the download or the pkexec prompt after the answer.
+    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+    input = { rl, lines: rl[Symbol.asyncIterator](), closed: false };
+    rl.once("close", () => input && (input.closed = true));
+  }
+  const prompt = `${question} [y/N] `;
+  if (input.closed) process.stdout.write(prompt); // a closed interface can't prompt
+  else {
+    input.rl.setPrompt(prompt);
+    input.rl.prompt();
+  }
+  const next = await input.lines.next();
+  if (next.done) {
+    process.stdout.write("\n"); // the end of input answers no, on the prompt's line
+    return false;
+  }
+  return /^y(es)?$/i.test(next.value.trim());
 }
+
+/** Lets go of stdin so the process can exit. */
+const closeInput = () => input?.rl.close();
 
 async function sources(paths: Paths, sub: string | undefined, location: string | undefined, yes: boolean): Promise<number> {
   const needLocation = () => {
@@ -91,6 +122,67 @@ async function sources(paths: Paths, sub: string | undefined, location: string |
       printError(`Unknown sources command "${sub ?? ""}".\n${USAGE}`);
       return 1;
   }
+}
+
+// One source for pkexec's path: the check that a prompt is possible and the run use the same program.
+const PKEXEC = pkexecPath(process.env);
+const canAsk = () => canPrompt(process.env, PKEXEC);
+const asRoot = (script: string) => runAsRoot(script, undefined, PKEXEC);
+
+/** What root is about to run, shown before anything asks for it. */
+const showScript = (script: string) => print(`This script runs with administrator rights:\n\n${script.trimEnd()}\n`);
+
+async function sandbox(paths: Paths, id: string, yes: boolean): Promise<number> {
+  // Never ask for root on a machine that doesn't need it.
+  if (!userNamespacesRestricted()) {
+    print(`This system doesn't restrict user namespaces, so Revamped ${id} starts without a profile. Nothing to do.`);
+    return 0;
+  }
+  const env = realSandboxEnv();
+  if (!hasAbi4(env)) {
+    printError(OLD_APPARMOR);
+    return 2;
+  }
+  const plan = planProfile(paths, id, env);
+  showScript(plan.script);
+  print(`This writes ${plan.file} and runs: apparmor_parser -r ${plan.file}`);
+  if (!canAsk()) {
+    print(plan.sudo());
+    return 1;
+  }
+  if (!yes && !(await confirm("Write it with administrator rights?"))) {
+    print(`Nothing changed. ${plan.sudo()}`);
+    return 1;
+  }
+  const failure = applyProfile(plan, PKEXEC);
+  if (failure) {
+    print(failure);
+    return 1;
+  }
+  print(`Installed and loaded ${plan.file}. Start ${id} (Revamped) again.`);
+  return 0;
+}
+
+/** After an uninstall: offers to remove this user's sandbox profile(s) for the app. Never fails the uninstall. */
+async function removeProfile(paths: Paths, id: string, yes: boolean): Promise<void> {
+  const names = existingProfileNames(paths, id, realSandboxEnv());
+  if (names.length === 0) return;
+  const many = names.length > 1;
+  const script = removeHelper(names);
+  const sudo = () => sudoInstructions(writeHelper(paths, `${names[0]}-remove`, script));
+  const files = names.map((n) => `${PROFILE_DIR}/${n}`);
+  for (const f of files) print(`A sandbox profile ${f} remains.`);
+  showScript(script);
+  if (!canAsk()) {
+    print(sudo());
+    return;
+  }
+  if (!yes && !(await confirm(`Remove ${many ? "them" : "it"} with administrator rights?`))) {
+    print(`${many ? "They stay." : "It stays."} ${sudo()}`);
+    return;
+  }
+  const r = asRoot(script);
+  print(r.ok ? `Removed ${files.join(", ")}.` : rootFailure(r, sudo, many ? "the profiles stay" : "the profile stays"));
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -164,8 +256,25 @@ async function main(argv: string[]): Promise<number> {
       if (!values.yes && !(await confirm(`Remove Revamped ${id} (all versions, its menu entry and saved choices)?`))) return 1;
       uninstall(paths, id);
       print(`Removed Revamped ${id}.`);
+      try {
+        await removeProfile(paths, id, values.yes ?? false);
+      } catch (e) {
+        printError(`revamp: couldn't check for a sandbox profile: ${e instanceof Error ? e.message : String(e)}`);
+      }
       return 0;
     }
+    case "doctor": {
+      const checks = runDoctor(paths, realDoctorEnv());
+      // Extra detail lines (sources, apps) are indented, so a source's name can't fake a check line of its own.
+      const indent = (text: string) => text.replaceAll("\n", "\n    ");
+      for (const c of checks) {
+        print(`${c.severity === "ok" ? "✓" : "✗"} ${c.label}: ${indent(c.detail)}`);
+        if (c.fix) print(`    Fix: ${indent(c.fix)}`);
+      }
+      return doctorExitCode(checks);
+    }
+    case "sandbox":
+      return sandbox(paths, needApp(), values.yes ?? false);
     case "check": {
       await seedDefaultSource(paths, printError);
       const r = await checkUpdates({ paths, log: (line) => printError(line) });
@@ -244,12 +353,14 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
-main(process.argv.slice(2)).then(
-  (code) => {
-    process.exitCode = code;
-  },
-  (e) => {
-    printError(`revamp: ${e instanceof Error ? e.message : String(e)}`);
-    process.exitCode = 1;
-  },
-);
+main(process.argv.slice(2))
+  .then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (e) => {
+      printError(`revamp: ${e instanceof Error ? e.message : String(e)}`);
+      process.exitCode = 1;
+    },
+  )
+  .finally(closeInput);
