@@ -99,7 +99,7 @@ test("installHelper writes the file beside its place, parse-checks it, then move
   assert.equal(
     installHelper("revamp-hydra", text),
     `${header}trap "rm -f '/etc/apparmor.d/revamp-hydra.new'" EXIT\n` +
-      `trap 'exit 3' HUP INT TERM\n` +
+      `trap 'exit 3' HUP INT QUIT TERM\n` +
       `cat > '/etc/apparmor.d/revamp-hydra.new' <<'REVAMP_PROFILE' || exit 3\n${text}\nREVAMP_PROFILE\n` +
       `apparmor_parser -Q -K '/etc/apparmor.d/revamp-hydra.new' || exit 3\n` +
       `mv -f '/etc/apparmor.d/revamp-hydra.new' '/etc/apparmor.d/revamp-hydra' || exit 3\n` +

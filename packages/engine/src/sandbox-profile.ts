@@ -161,8 +161,9 @@ function profilePath(name: string): string {
 
 /**
  * sh script, run as root: write the profile beside its place, parse-check it without loading, move it over, reload it.
- * A file that doesn't parse never reaches /etc/apparmor.d (the boot would retry it forever), and the trap removes the
- * `.new` file on every way out. Each failure exits 3, never pkexec's own 126 (dismissed) or 127.
+ * A file that doesn't parse never reaches /etc/apparmor.d (the boot would retry it forever), and a trap removes the
+ * `.new` file when the script ends or HUP, INT, QUIT or TERM stops it. SIGKILL and a power loss leave it behind; the
+ * uninstall (removeHelper) deletes it. Each failure exits 3, never pkexec's own 126 (dismissed) or 127.
  */
 export function installHelper(name: string, text: string): string {
   if (text.split("\n").includes("REVAMP_PROFILE")) throw new Error("the profile text would end the script's heredoc (REVAMP_PROFILE)");
@@ -170,7 +171,7 @@ export function installHelper(name: string, text: string): string {
   return (
     `${HEADER}trap "rm -f '${path}.new'" EXIT\n` +
     // dash skips the EXIT trap when a signal kills it; exiting from the signal's trap runs it
-    `trap 'exit 3' HUP INT TERM\n` +
+    `trap 'exit 3' HUP INT QUIT TERM\n` +
     `cat > '${path}.new' <<'REVAMP_PROFILE' || exit 3\n${text}\nREVAMP_PROFILE\n` +
     `apparmor_parser -Q -K '${path}.new' || exit 3\n` +
     `mv -f '${path}.new' '${path}' || exit 3\n` +
