@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { doctorExitCode, onPath, parseTimerShow, realDoctorEnv, runDoctor, WINDOW_GLIBC, type DoctorEnv } from "../src/doctor.ts";
@@ -243,6 +243,25 @@ test("apps lists each install, or none yet", () => {
   assert.equal(by(runDoctor(p, env(p)), "apps")?.severity, "ok");
   const two = setup({ apps: ["hydra", "heroic"] });
   assert.deepEqual(by(runDoctor(two, env(two)), "apps")?.detail.split("\n").sort(), ["heroic 1.0.0", "hydra 1.0.0"]);
+});
+
+test("an app whose current version has no receipt is fixable: a dangling link, an unfinished install, no current", () => {
+  const p = setup({ apps: ["hydra", "heroic"] });
+  const current = join(p.data, "apps/hydra/current");
+  const apps = () => by(runDoctor(p, env(p)), "apps")!;
+  rmSync(current);
+  symlinkSync("2.0.0", current); // dangling
+  assert.equal(apps().severity, "fixable");
+  assert.deepEqual(apps().detail.split("\n").sort(), ["heroic 1.0.0", "hydra: current points to 2.0.0, which is missing"]);
+  assert.equal(apps().fix, "revamp rollback hydra"); // 1.0.0 has a receipt
+  mkdirSync(join(p.data, "apps/hydra/2.0.0")); // there, but no receipt
+  assert.match(apps().detail, /^hydra: 2\.0\.0 has no receipt \(an unfinished install\)$/m);
+  rmSync(current);
+  assert.match(apps().detail, /^hydra: no current version$/m);
+  assert.equal(apps().fix, "revamp rollback hydra");
+  rmSync(join(p.data, "apps/heroic/current"));
+  assert.equal(apps().fix, "revamp rollback heroic\nrevamp rollback hydra");
+  assert.equal(doctorExitCode(runDoctor(p, env(p))), 1);
 });
 
 test("an unreadable apps folder is a fixable apps check, not a throw", () => {

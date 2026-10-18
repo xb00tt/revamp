@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { loadSources } from "./bundle-sources.ts";
@@ -189,10 +190,26 @@ export function runDoctor(paths: Paths, env: DoctorEnv): DoctorCheck[] {
     checks.push({ id: "sources", label: "Bundle sources", severity: "fixable", detail: (e as Error).message, fix: `repair or remove ${join(paths.config, "sources.json")}` });
   }
 
-  checks.push(
-    appsError !== undefined
-      ? { id: "apps", label: "Revamped apps", severity: "fixable", detail: `could not read installed apps: ${appsError}` }
-      : { id: "apps", label: "Revamped apps", severity: "ok", detail: apps.length ? apps.map((a) => `${a.appId} ${a.current ?? "(no current version)"}`).join("\n") : "none yet" },
+  if (appsError !== undefined) {
+    checks.push({ id: "apps", label: "Revamped apps", severity: "fixable", detail: `could not read installed apps: ${appsError}` });
+    return checks;
+  }
+  // `current` must name a finished install (one with a receipt); listInstalls lists only apps that have one.
+  const problem = (a: InstalledApp) =>
+    a.current === undefined
+      ? "no current version"
+      : a.versions.some((v) => v.version === a.current)
+        ? undefined
+        : existsSync(join(paths.data, "apps", a.appId, "current"))
+          ? `${a.current} has no receipt (an unfinished install)`
+          : `current points to ${a.current}, which is missing`;
+  const bad = apps.filter((a) => problem(a) !== undefined);
+  add(
+    "apps",
+    "Revamped apps",
+    bad.length === 0,
+    apps.length ? apps.map((a) => (problem(a) ? `${a.appId}: ${problem(a)}` : `${a.appId} ${a.current}`)).join("\n") : "none yet",
+    bad.map((a) => `revamp ${a.versions.length ? "rollback" : "patch"} ${a.appId}`).join("\n"),
   );
   return checks;
 }
