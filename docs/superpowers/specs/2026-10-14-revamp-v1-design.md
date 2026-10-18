@@ -1,7 +1,7 @@
 # Revamp v1: design
 
 - **Date:** 2026-10-14
-- **Status:** draft, waiting for the owner's review
+- **Status:** v1 complete (2026-10-18), released as Revamp 1.0.0 with bundle 0.4.2. This document is frozen: new work gets its own design (v2), not amendments here.
 - **Inputs:**
   - `docs/kickoff-prompt.md`: its settled decisions are not repeated here.
   - `docs/research/morphe.md`.
