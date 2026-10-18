@@ -4,8 +4,8 @@ Revamp's own releases (the app: CLI, window and the @revamp-app npm packages). T
 
 ## 1.1.0
 
-- `revamp doctor` checks this machine: libraries, the user-namespace sandbox, `~/.local/bin` on PATH, the daily timer, bundle sources and installed apps. It prints a fix beside every failed check and exits 1 when you can fix it, 2 when something is broken.
-- `revamp sandbox <app>` makes Revamped apps start on stock Ubuntu 24.04 and newer: it shows the AppArmor profile and the script root will run, asks once, and installs the profile through `pkexec` (or prints `sudo` instructions without a graphical session). `revamp uninstall` offers to remove it again.
+- `revamp doctor` checks this machine: libraries, the user-namespace sandbox, `~/.local/bin` on PATH, the daily timer, bundle sources and installed apps. It prints a fix beside failed checks that have one and exits 1 when you can fix it, 2 when something is broken.
+- `revamp sandbox <app>` makes Revamped apps start on stock Ubuntu 24.04 and newer: it shows the AppArmor profile and the script root will run, asks once, and installs the profile through `pkexec` (or prints `sudo` instructions without a polkit agent or `pkexec`). `revamp uninstall` offers to remove it again.
 - The window shows a banner with a "Fix the sandbox" button per app that needs the profile.
 - `revamp patch` and `revamp update` end with `revamp sandbox <app>` when the machine needs the profile and the app has none.
 - `@revamp-app/sdk`, `@revamp-app/engine` and `@revamp-app/cli` 1.1.0 on npm.
