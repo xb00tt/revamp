@@ -15,6 +15,9 @@ import { demoDeb, writeDemoBundle } from "./helpers/demo.ts";
 
 // patchApp asks whether the sandbox profile exists: never in the machine's /etc/apparmor.d.
 process.env.REVAMP_PROFILE_DIR = mkdtempSync(join(tmpdir(), "revamp-profiles-"));
+// The homes live under the system's /tmp, which the data dir check refuses: on a restricted machine the lookup would
+// fail there, before it reads REVAMP_PROFILE_DIR.
+process.env.REVAMP_TRUSTED_ROOT = tmpdir();
 
 /** Demo 1.0.0 installed from a file source; the fake GitHub's latest release is `state.latest`. */
 async function setup(list3 = false) {

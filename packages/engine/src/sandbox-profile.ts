@@ -99,7 +99,7 @@ export function assertPrivateDataDir(dir: string, uid: number = process.getuid!(
       // anyone else is in that group needs /etc/group. Upgrade path: read its members.
       // Mode bits only: a POSIX ACL granting another user write shows as the mask in the group bits, which this exception passes.
       const others = (st.mode & 0o002) !== 0 || ((st.mode & 0o020) !== 0 && !(st.gid === uid && gid === uid));
-      if (others) throw new Error(`unsafe data path ${dir}: ${d} is writable by other users`);
+      if (others) throw new Error(`unsafe data path ${dir}: ${d} is writable by other users. Set XDG_DATA_HOME to a directory only you can write, e.g. under your home.`);
     }
     if (d === "/") break;
   }
@@ -154,13 +154,16 @@ const HEADER = "#!/bin/sh\nset -eu\numask 022\n";
 function profilePath(name: string): string {
   assertSafeName("profile name", name);
   if (!/^revamp-[A-Za-z0-9._+-]+$/.test(name)) throw new Error(`profile name must start with "revamp-": ${name}`);
+  // The scripts write and delete `<path>.new`: for app id "hydra.new" that is revamp-hydra's own profile file.
+  if (name.endsWith(".new")) throw new Error(`profile name must not end in ".new": ${name}`);
   return `${PROFILE_DIR}/${name}`;
 }
 
 /**
  * sh script, run as root: write the profile beside its place, parse-check it without loading, move it over, reload it.
- * A file that doesn't parse never reaches /etc/apparmor.d (the boot would retry it forever), and the trap removes the
- * `.new` file on every way out. Each failure exits 3, never pkexec's own 126 (dismissed) or 127.
+ * A file that doesn't parse never reaches /etc/apparmor.d (the boot would retry it forever), and a trap removes the
+ * `.new` file when the script ends or HUP, INT, QUIT or TERM stops it. SIGKILL and a power loss leave it behind; the
+ * uninstall (removeHelper) deletes it. Each failure exits 3, never pkexec's own 126 (dismissed) or 127.
  */
 export function installHelper(name: string, text: string): string {
   if (text.split("\n").includes("REVAMP_PROFILE")) throw new Error("the profile text would end the script's heredoc (REVAMP_PROFILE)");
@@ -168,7 +171,7 @@ export function installHelper(name: string, text: string): string {
   return (
     `${HEADER}trap "rm -f '${path}.new'" EXIT\n` +
     // dash skips the EXIT trap when a signal kills it; exiting from the signal's trap runs it
-    `trap 'exit 3' HUP INT TERM\n` +
+    `trap 'exit 3' HUP INT QUIT TERM\n` +
     `cat > '${path}.new' <<'REVAMP_PROFILE' || exit 3\n${text}\nREVAMP_PROFILE\n` +
     `apparmor_parser -Q -K '${path}.new' || exit 3\n` +
     `mv -f '${path}.new' '${path}' || exit 3\n` +
@@ -176,11 +179,18 @@ export function installHelper(name: string, text: string): string {
   );
 }
 
-/** sh script, run as root: unload each profile, then delete its file and any `.new` an interrupted install left. */
-export function removeHelper(names: string | string[]): string {
+/**
+ * sh script, run as root: unload each profile, then delete its file and any `.new` an interrupted install left. A name in
+ * `leftovers` has only a `.new` (its profile is gone or never got there): nothing to unload, so just the rm.
+ */
+export function removeHelper(names: string | string[], leftovers: string[] = []): string {
   const list = typeof names === "string" ? [names] : names;
-  if (list.length === 0) throw new Error("no profile to remove");
-  return HEADER + list.map((name) => profilePath(name)).map((path) => `apparmor_parser -R '${path}' || true\nrm -f '${path}' '${path}.new'\n`).join("");
+  if (list.length + leftovers.length === 0) throw new Error("no profile to remove");
+  return (
+    HEADER +
+    list.map((name) => profilePath(name)).map((path) => `apparmor_parser -R '${path}' || true\nrm -f '${path}' '${path}.new'\n`).join("") +
+    leftovers.map((name) => profilePath(name)).map((path) => `rm -f '${path}.new'\n`).join("")
+  );
 }
 
 /** Reads revamp-<appId>.desktop's Exec, returns the executable path relative to <dataDir>/apps/<appId>/current/, or throws. */

@@ -29,6 +29,8 @@ const trustedRoot = (t: { after(fn: () => void): void }, value: string | undefin
 };
 
 const tmp = () => mkdtempSync(join(tmpdir(), "revamp-sbx-"));
+/** assert.throws' validator for an error whose message holds `text` (a plain substring: paths hold regex characters, and the walk names real paths). */
+const mentions = (text: string) => (e: unknown) => e instanceof Error && e.message.includes(text);
 const DATA = "/home/a/.local/share/revamp";
 
 test("userNamespacesRestricted reads the sysctl file", () => {
@@ -99,7 +101,7 @@ test("installHelper writes the file beside its place, parse-checks it, then move
   assert.equal(
     installHelper("revamp-hydra", text),
     `${header}trap "rm -f '/etc/apparmor.d/revamp-hydra.new'" EXIT\n` +
-      `trap 'exit 3' HUP INT TERM\n` +
+      `trap 'exit 3' HUP INT QUIT TERM\n` +
       `cat > '/etc/apparmor.d/revamp-hydra.new' <<'REVAMP_PROFILE' || exit 3\n${text}\nREVAMP_PROFILE\n` +
       `apparmor_parser -Q -K '/etc/apparmor.d/revamp-hydra.new' || exit 3\n` +
       `mv -f '/etc/apparmor.d/revamp-hydra.new' '/etc/apparmor.d/revamp-hydra' || exit 3\n` +
@@ -115,6 +117,18 @@ test("installHelper refuses a profile that could end the heredoc early or a name
   assert.throws(() => installHelper("hydra", "x"), /profile name must start with "revamp-": hydra/);
   assert.throws(() => removeHelper("hydra"), /profile name must start with "revamp-": hydra/);
   assert.throws(() => removeHelper("revamp-"), /profile name must start with "revamp-"/);
+});
+
+test("the helpers refuse a name ending in .new: its temp file would be another app's profile", () => {
+  // app id "hydra.new" is a valid name, and its profile revamp-hydra.new is the temp file of revamp-hydra's
+  const rule = /profile name must not end in "\.new": revamp-hydra\.new/;
+  assert.throws(() => installHelper("revamp-hydra.new", "x"), rule);
+  assert.throws(() => removeHelper("revamp-hydra.new"), rule);
+  assert.throws(() => removeHelper(["revamp-hydra", "revamp-hydra.new"]), rule);
+  // other dots, and ".new" inside a name, are fine
+  assert.match(installHelper("revamp-hydra.new2", "x"), /'\/etc\/apparmor\.d\/revamp-hydra\.new2\.new'/);
+  assert.match(removeHelper("revamp-my.new-app"), /'\/etc\/apparmor\.d\/revamp-my\.new-app'/);
+  assert.match(removeHelper("revamp-hydra-u1000"), /'\/etc\/apparmor\.d\/revamp-hydra-u1000'/);
 });
 
 test("removeHelper unloads, then removes the file", () => {
@@ -134,6 +148,18 @@ test("removeHelper takes several names: one header, one unload and remove each",
   assert.throws(() => removeHelper([]), /no profile/);
   assert.throws(() => removeHelper(["revamp-hydra", "hydra"]), /profile name must start with "revamp-": hydra/);
   assert.throws(() => removeHelper(["revamp-hydra", "revamp-a b"]), /unsafe profile name/);
+});
+
+test("removeHelper's second list is for a .new left without its profile: nothing to unload, only the rm", () => {
+  assert.equal(removeHelper([], ["revamp-hydra"]), `${header}rm -f '/etc/apparmor.d/revamp-hydra.new'\n`);
+  assert.equal(
+    removeHelper("revamp-hydra", ["revamp-hydra-u7"]),
+    `${header}apparmor_parser -R '/etc/apparmor.d/revamp-hydra' || true\nrm -f '/etc/apparmor.d/revamp-hydra' '/etc/apparmor.d/revamp-hydra.new'\n` +
+      `rm -f '/etc/apparmor.d/revamp-hydra-u7.new'\n`,
+  );
+  assert.throws(() => removeHelper([], []), /no profile/);
+  assert.throws(() => removeHelper([], ["hydra"]), /profile name must start with "revamp-": hydra/);
+  assert.throws(() => removeHelper([], ["revamp-hydra.new"]), /profile name must not end in "\.new"/);
 });
 
 test("realSandboxEnv reads profiles from the given dir, other paths as they are", () => {
@@ -202,11 +228,11 @@ test("assertPrivateDataDir refuses a dir another user could write or recreate", 
   const data = join(open, "revamp");
   mkdirSync(data, { mode: 0o755 });
   chmodSync(data, 0o755);
-  assert.throws(() => assertPrivateDataDir(data), new RegExp(`^Error: unsafe data path ${data}: ${open} is writable by other users$`));
+  assert.throws(() => assertPrivateDataDir(data), mentions(`unsafe data path ${data}: ${realpathSync(open)} is writable by other users`));
   assert.throws(() => assertPrivateDataDir(join(open, "missing")), /is writable by other users/);
   chmodSync(open, 0o700);
   chmodSync(data, 0o777);
-  assert.throws(() => assertPrivateDataDir(data), new RegExp(`${data} is writable by other users`)); // the dir itself
+  assert.throws(() => assertPrivateDataDir(data), mentions(`${realpathSync(data)} is writable by other users`)); // the dir itself
   chmodSync(data, 0o770);
   assert.throws(() => assertPrivateDataDir(data, process.getuid!(), -1), /is writable by other users/); // a group that isn't the user's own
   // owned by another user (seen as one by passing another uid)
@@ -220,9 +246,11 @@ test("assertPrivateDataDir refuses a dir under a sticky world-writable one: it g
   const data = join(sticky, "revamp");
   mkdirSync(data, { mode: 0o700 });
   trustedRoot(t, undefined);
-  assert.throws(() => assertPrivateDataDir(data), new RegExp(`^Error: unsafe data path ${data}: ${sticky} is writable by other users$`));
+  assert.throws(() => assertPrivateDataDir(data), mentions(`unsafe data path ${data}: ${realpathSync(sticky)} is writable by other users`));
+  // the message names the way out: /tmp can't be made private, another data dir can
+  assert.throws(() => assertPrivateDataDir(data), mentions("is writable by other users. Set XDG_DATA_HOME to a directory only you can write, e.g. under your home."));
   // the system's /tmp itself, when that is where the temp dirs are
-  if ((statSync(tmpdir()).mode & 0o1002) === 0o1002) assert.throws(() => assertPrivateDataDir(tmp()), new RegExp(`: ${tmpdir()} is writable by other users$`));
+  if ((statSync(tmpdir()).mode & 0o1002) === 0o1002) assert.throws(() => assertPrivateDataDir(tmp()), mentions(`: ${realpathSync(tmpdir())} is writable by other users`));
 });
 
 test("REVAMP_TRUSTED_ROOT (a test seam) stops the walk: that dir and the ones above it aren't judged", (t) => {
@@ -233,7 +261,7 @@ test("REVAMP_TRUSTED_ROOT (a test seam) stops the walk: that dir and the ones ab
   trustedRoot(t, open);
   assert.equal(assertPrivateDataDir(data), realpathSync(data));
   chmodSync(data, 0o777);
-  assert.throws(() => assertPrivateDataDir(data), new RegExp(`: ${data} is writable by other users$`)); // below it, still judged
+  assert.throws(() => assertPrivateDataDir(data), mentions(`: ${realpathSync(data)} is writable by other users`)); // below it, still judged
   chmodSync(data, 0o700);
   delete process.env.REVAMP_TRUSTED_ROOT;
   assert.throws(() => assertPrivateDataDir(data), /is writable by other users/);

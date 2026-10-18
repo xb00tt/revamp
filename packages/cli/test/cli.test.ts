@@ -471,6 +471,25 @@ test("uninstall keeps going when the profile prompt is cancelled, and says the p
   assert.equal(existsSync(join(s.data, "apps/hydra")), false);
 });
 
+test("uninstall also cleans up a .new an interrupted install left with no profile beside it: the rm alone, no unload", () => {
+  const s = sandboxHome();
+  writeFileSync(join(s.profiles, "revamp-hydra.new"), "half a profile");
+  const script = removeHelper([], ["revamp-hydra"]);
+  const r = cli(["uninstall", "hydra", "--yes"], s.home, "", s.env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /A leftover \/etc\/apparmor\.d\/revamp-hydra\.new remains\./);
+  assert.ok(r.stdout.includes(script.trimEnd()), r.stdout);
+  assert.doesNotMatch(r.stdout, /apparmor_parser/);
+  assert.match(r.stdout, /Removed \/etc\/apparmor\.d\/revamp-hydra\.new\./);
+  assert.equal(readFileSync(s.log, "utf8"), `/bin/sh -s\n${script}`);
+  // answered n: it stays, with the sudo way out
+  const s2 = sandboxHome();
+  writeFileSync(join(s2.profiles, "revamp-hydra.new"), "half a profile");
+  const no = cli(["uninstall", "hydra"], s2.home, "y\nn\n", s2.env);
+  assert.match(no.stdout, /It stays\. Run it with sudo instead:\n {2}sudo sh .*revamp-hydra-remove\.sh/);
+  assert.equal(readFileSync(join(s2.home, ".local/state/revamp/sandbox/revamp-hydra-remove.sh"), "utf8"), script);
+});
+
 test("uninstall removes both of this user's profiles in one script and says them", () => {
   const s = withProfile();
   const suffixed = `revamp-hydra-u${process.getuid!()}`;

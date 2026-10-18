@@ -167,7 +167,7 @@ test("a data dir other users can write is the same fixable check; an unsafe app 
   chmodSync(p.data, 0o777);
   const check = by(runDoctor(p, env(p, { sysctl: "1" })), "sandbox-hydra")!;
   assert.equal(check.severity, "fixable");
-  assert.equal(check.detail, `unsafe data path ${p.data}: ${p.data} is writable by other users`);
+  assert.equal(check.detail, `unsafe data path ${p.data}: ${p.data} is writable by other users. Set XDG_DATA_HOME to a directory only you can write, e.g. under your home.`);
   const reads: string[] = [];
   const spy = { readFile: (f: string) => (reads.push(f), undefined), fileExists: () => true, uid: 7 };
   assert.throws(() => sandboxProfilePresent(p, "../x", spy), /unsafe app id/);

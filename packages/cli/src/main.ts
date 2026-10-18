@@ -34,7 +34,7 @@ import { formatInstalls, formatPatchList, formatPatchResult, formatSourceCandida
 import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
-import { applyProfile, canPrompt, existingProfileNames, hasAbi4, OLD_APPARMOR, pkexecPath, planProfile, rootFailure, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
+import { applyProfile, canPrompt, existingProfileNames, hasAbi4, leftoverTempNames, OLD_APPARMOR, pkexecPath, planProfile, rootFailure, runAsRoot, sudoInstructions, writeHelper } from "./sandbox.ts";
 import { serve } from "./serve.ts";
 import { installCli, installWindow } from "./install.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
@@ -163,15 +163,18 @@ async function sandbox(paths: Paths, id: string, yes: boolean): Promise<number> 
   return 0;
 }
 
-/** After an uninstall: offers to remove this user's sandbox profile(s) for the app. Never fails the uninstall. */
+/** After an uninstall: offers to remove this user's sandbox profile(s) for the app, and a `.new` an interrupted install left. Never fails the uninstall. */
 async function removeProfile(paths: Paths, id: string, yes: boolean): Promise<void> {
-  const names = existingProfileNames(paths, id, realSandboxEnv());
-  if (names.length === 0) return;
-  const many = names.length > 1;
-  const script = removeHelper(names);
-  const sudo = () => sudoInstructions(writeHelper(paths, `${names[0]}-remove`, script));
-  const files = names.map((n) => `${PROFILE_DIR}/${n}`);
-  for (const f of files) print(`A sandbox profile ${f} remains.`);
+  const env = realSandboxEnv();
+  const names = existingProfileNames(paths, id, env);
+  const leftovers = leftoverTempNames(paths, id, env);
+  if (names.length + leftovers.length === 0) return;
+  const script = removeHelper(names, leftovers);
+  const sudo = () => sudoInstructions(writeHelper(paths, `${[...names, ...leftovers][0]}-remove`, script));
+  const files = [...names.map((n) => `${PROFILE_DIR}/${n}`), ...leftovers.map((n) => `${PROFILE_DIR}/${n}.new`)];
+  const many = files.length > 1;
+  for (const n of names) print(`A sandbox profile ${PROFILE_DIR}/${n} remains.`);
+  for (const n of leftovers) print(`A leftover ${PROFILE_DIR}/${n}.new remains.`);
   showScript(script);
   if (!canAsk()) {
     print(sudo());

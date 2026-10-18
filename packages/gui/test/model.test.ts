@@ -196,6 +196,16 @@ test("the sandbox note appears only when the system restricts user namespaces an
   ); // no prompt here: the banner says to run revamp sandbox in a terminal
 });
 
+test("an app whose profile can't be planned shows its reason, through plain(), and no fix", () => {
+  const blocked = { appId: "hydra", profile: "revamp-hydra", installed: false, error: "unsafe data path /tmp/a: /tmp is writable by other users. Set XDG_DATA_HOME to a directory only you can write.\u202E" };
+  const heroic = { appId: "heroic", profile: "revamp-heroic", installed: false };
+  const lead = "This system restricts user namespaces, so Revamped apps can't start their sandbox.";
+  assert.equal(sandboxDetail(blocked), "Can't install a profile for hydra: unsafe data path /tmp/a: /tmp is writable by other users. Set XDG_DATA_HOME to a directory only you can write.");
+  assert.equal(sandboxNote({ restricted: true, canPrompt: true, apps: [blocked] }), lead); // nothing to offer, but the banner stays
+  assert.equal(sandboxNote({ restricted: true, canPrompt: true, apps: [blocked, heroic] }), `${lead} Revamp can install an AppArmor profile for heroic (one administrator prompt each).`);
+  assert.equal(sandboxNote({ restricted: false, canPrompt: true, apps: [blocked] }), null);
+});
+
 test("the sandbox detail spells out the file root writes before the system asks for a password", () => {
   assert.equal(sandboxDetail({ appId: "hydra", profile: "revamp-hydra" }), "Writes /etc/apparmor.d/revamp-hydra and loads it with apparmor_parser; the system asks for your password.");
 });

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import {
   addSource,
+  assertSafeName,
   checkUpdates,
   DEFAULT_SOURCE,
   describe,
@@ -176,10 +177,16 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
     },
     "sandbox.status": () => {
       const env = realSandboxEnv();
-      const apps = [];
+      const apps: Array<{ appId: string; profile: string; installed: boolean; script?: string; error?: string }> = [];
       const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
       for (const { appId, current } of listInstalls(o.paths)) {
         if (!current) continue;
+        try {
+          assertSafeName("app id", appId);
+        } catch (e) {
+          o.log(`sandbox.status: skipping ${appId}: ${message(e)}`); // an odd directory name must not hide the banner for the other apps
+          continue;
+        }
         try {
           const installed = sandboxProfilePresent(o.paths, appId, env);
           const app: { appId: string; profile: string; installed: boolean; script?: string } = { appId, profile: chooseProfileName(o.paths, appId, env), installed };
@@ -193,7 +200,9 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
           }
           apps.push(app);
         } catch (e) {
-          o.log(`sandbox.status: skipping ${appId}: ${message(e)}`); // an odd directory name must not hide the banner for the other apps
+          // An unsafe data dir: the window shows the reason, rather than a banner that vanishes.
+          o.log(`sandbox.status: ${appId}: ${message(e)}`);
+          apps.push({ appId, profile: `revamp-${appId}`, installed: false, error: message(e) });
         }
       }
       return { restricted: userNamespacesRestricted(), canPrompt: canPrompt(process.env, pkexecPath(process.env)), apps };
