@@ -12,7 +12,7 @@ export const SYSCTL_PATH = "/proc/sys/kernel/apparmor_restrict_unprivileged_user
  * A test seam's value, read only when not running as the single executable: the profile lookup decides which file root
  * overwrites or removes, so a stray variable must never steer root in the shipped binary. Empty counts as unset.
  */
-export function testSeam(name: "REVAMP_PROFILE_DIR" | "REVAMP_PKEXEC" | "REVAMP_SYSCTL_PATH", env: NodeJS.ProcessEnv = process.env): string | undefined {
+export function testSeam(name: "REVAMP_PROFILE_DIR" | "REVAMP_PKEXEC" | "REVAMP_SYSCTL_PATH" | "REVAMP_TRUSTED_ROOT", env: NodeJS.ProcessEnv = process.env): string | undefined {
   return (!isSea() && env[name]) || undefined;
 }
 
@@ -70,35 +70,40 @@ export function realSandboxEnv(profileDir: string = testSeam("REVAMP_PROFILE_DIR
 /**
  * The data dir's real path (AppArmor attaches by canonical path), refused when another local user could put files there
  * (sshd StrictModes style): it and every dir above it must be owned by root or this user and not writable by others.
- * A sticky dir (/tmp) may be writable by others above a child that exists, since only its owner can rename or remove it;
- * a part that doesn't exist yet counts as writable by whoever may write the dir above it.
+ * No exception for sticky dirs: the profile is permanent and reloads at boot, while /tmp, /var/tmp and /dev/shm get
+ * wiped, after which anyone may recreate the path. A part that doesn't exist yet is judged by the dirs above it.
+ * $REVAMP_TRUSTED_ROOT (a test seam) stops the walk at that dir: it and the dirs above it aren't judged.
  */
 export function assertPrivateDataDir(dir: string, uid: number = process.getuid!(), gid: number = process.getgid!()): string {
   if (!isAbsolute(dir)) throw new Error(`unsupported data path: ${JSON.stringify(dir)}`);
-  let real = dir;
-  try {
-    real = realpathSync(dir);
-  } catch {
-    // not created yet: judged by what exists above it
-  }
-  let child: Stats | undefined; // the part below `d`, when it exists
-  for (let d = real; ; d = dirname(d)) {
+  const real = (path: string) => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return path; // not created yet
+    }
+  };
+  const data = real(dir);
+  const seam = testSeam("REVAMP_TRUSTED_ROOT");
+  const stop = seam && real(seam);
+  for (let d = data; d !== stop; d = dirname(d)) {
     let st: Stats | undefined;
     try {
       st = statSync(d);
     } catch {
-      // missing
+      // missing: the dir above it decides
     }
     if (st) {
       if (st.uid !== 0 && st.uid !== uid) throw new Error(`unsafe data path ${dir}: ${d} is owned by ${st.uid}`);
       // ponytail: group write is fine for the user's private group (gid == uid, Ubuntu's umask 002); telling whether
       // anyone else is in that group needs /etc/group. Upgrade path: read its members.
+      // Mode bits only: a POSIX ACL granting another user write shows as the mask in the group bits, which this exception passes.
       const others = (st.mode & 0o002) !== 0 || ((st.mode & 0o020) !== 0 && !(st.gid === uid && gid === uid));
-      if (others && !((st.mode & 0o1000) !== 0 && child)) throw new Error(`unsafe data path ${dir}: ${d} is writable by other users`);
+      if (others) throw new Error(`unsafe data path ${dir}: ${d} is writable by other users`);
     }
-    if (d === "/") return real;
-    child = st;
+    if (d === "/") break;
   }
+  return data;
 }
 
 /**
@@ -162,6 +167,8 @@ export function installHelper(name: string, text: string): string {
   const path = profilePath(name);
   return (
     `${HEADER}trap "rm -f '${path}.new'" EXIT\n` +
+    // dash skips the EXIT trap when a signal kills it; exiting from the signal's trap runs it
+    `trap 'exit 3' HUP INT TERM\n` +
     `cat > '${path}.new' <<'REVAMP_PROFILE' || exit 3\n${text}\nREVAMP_PROFILE\n` +
     `apparmor_parser -Q -K '${path}.new' || exit 3\n` +
     `mv -f '${path}.new' '${path}' || exit 3\n` +
@@ -169,11 +176,11 @@ export function installHelper(name: string, text: string): string {
   );
 }
 
-/** sh script, run as root: unload each profile, then delete its file. */
+/** sh script, run as root: unload each profile, then delete its file and any `.new` an interrupted install left. */
 export function removeHelper(names: string | string[]): string {
   const list = typeof names === "string" ? [names] : names;
   if (list.length === 0) throw new Error("no profile to remove");
-  return HEADER + list.map((name) => profilePath(name)).map((path) => `apparmor_parser -R '${path}' || true\nrm -f '${path}'\n`).join("");
+  return HEADER + list.map((name) => profilePath(name)).map((path) => `apparmor_parser -R '${path}' || true\nrm -f '${path}' '${path}.new'\n`).join("");
 }
 
 /** Reads revamp-<appId>.desktop's Exec, returns the executable path relative to <dataDir>/apps/<appId>/current/, or throws. */

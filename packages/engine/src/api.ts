@@ -14,7 +14,7 @@ import { runSandboxed } from "./sandbox.ts";
 import { realSandboxEnv, sandboxProfilePresent } from "./sandbox-profile.ts";
 import { compareVersions, ENGINE_VERSION } from "./version.ts";
 
-/** The install note's question; an unsafe username can't be judged, so the note stays. */
+/** The install note's question; an unsafe app id or data dir can't be judged, so the note stays. */
 function profileInstalled(paths: Paths, appId: string): boolean {
   try {
     return sandboxProfilePresent(paths, appId, realSandboxEnv());

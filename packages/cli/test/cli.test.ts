@@ -35,6 +35,7 @@ const cli = (args: string[], home = freshHome(), input = "", extra: Record<strin
     REVAMP_PROFILE_DIR: NO_PROFILES,
     REVAMP_PKEXEC: "/nonexistent/pkexec",
     REVAMP_SYSCTL_PATH: "/nonexistent/sysctl", // unrestricted unless a test says otherwise
+    REVAMP_TRUSTED_ROOT: tmpdir(), // the homes live under the system's /tmp, which a data dir may not otherwise be under
     ...extra,
   };
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];

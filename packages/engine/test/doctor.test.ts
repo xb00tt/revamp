@@ -8,6 +8,8 @@ import { environmentWarnings } from "../src/install.ts";
 import { revampPaths, type Paths } from "../src/paths.ts";
 import { sandboxProfilePresent, SYSCTL_PATH } from "../src/sandbox-profile.ts";
 
+// The homes here live under the system's /tmp: the sandbox checks judge the data dir only up to it.
+process.env.REVAMP_TRUSTED_ROOT = tmpdir();
 const tmp = () => mkdtempSync(join(tmpdir(), "revamp-doc-"));
 const HOME = "/home/u";
 

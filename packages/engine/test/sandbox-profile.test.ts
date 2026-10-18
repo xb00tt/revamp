@@ -19,6 +19,15 @@ import {
 } from "../src/sandbox-profile.ts";
 import { revampPaths } from "../src/paths.ts";
 
+// The homes here live under the system's /tmp, which assertPrivateDataDir refuses: the seam makes it stop there.
+process.env.REVAMP_TRUSTED_ROOT = tmpdir();
+/** Sets REVAMP_TRUSTED_ROOT (undefined removes it) until the test ends. */
+const trustedRoot = (t: { after(fn: () => void): void }, value: string | undefined) => {
+  t.after(() => (process.env.REVAMP_TRUSTED_ROOT = tmpdir()));
+  if (value === undefined) delete process.env.REVAMP_TRUSTED_ROOT;
+  else process.env.REVAMP_TRUSTED_ROOT = value;
+};
+
 const tmp = () => mkdtempSync(join(tmpdir(), "revamp-sbx-"));
 const DATA = "/home/a/.local/share/revamp";
 
@@ -90,6 +99,7 @@ test("installHelper writes the file beside its place, parse-checks it, then move
   assert.equal(
     installHelper("revamp-hydra", text),
     `${header}trap "rm -f '/etc/apparmor.d/revamp-hydra.new'" EXIT\n` +
+      `trap 'exit 3' HUP INT TERM\n` +
       `cat > '/etc/apparmor.d/revamp-hydra.new' <<'REVAMP_PROFILE' || exit 3\n${text}\nREVAMP_PROFILE\n` +
       `apparmor_parser -Q -K '/etc/apparmor.d/revamp-hydra.new' || exit 3\n` +
       `mv -f '/etc/apparmor.d/revamp-hydra.new' '/etc/apparmor.d/revamp-hydra' || exit 3\n` +
@@ -110,7 +120,7 @@ test("installHelper refuses a profile that could end the heredoc early or a name
 test("removeHelper unloads, then removes the file", () => {
   assert.equal(
     removeHelper("revamp-hydra"),
-    `${header}apparmor_parser -R '/etc/apparmor.d/revamp-hydra' || true\nrm -f '/etc/apparmor.d/revamp-hydra'\n`,
+    `${header}apparmor_parser -R '/etc/apparmor.d/revamp-hydra' || true\nrm -f '/etc/apparmor.d/revamp-hydra' '/etc/apparmor.d/revamp-hydra.new'\n`,
   );
 });
 
@@ -118,8 +128,8 @@ test("removeHelper takes several names: one header, one unload and remove each",
   assert.equal(removeHelper(["revamp-hydra"]), removeHelper("revamp-hydra"));
   assert.equal(
     removeHelper(["revamp-hydra", "revamp-hydra-bob"]),
-    `${header}apparmor_parser -R '/etc/apparmor.d/revamp-hydra' || true\nrm -f '/etc/apparmor.d/revamp-hydra'\n` +
-      `apparmor_parser -R '/etc/apparmor.d/revamp-hydra-bob' || true\nrm -f '/etc/apparmor.d/revamp-hydra-bob'\n`,
+    `${header}apparmor_parser -R '/etc/apparmor.d/revamp-hydra' || true\nrm -f '/etc/apparmor.d/revamp-hydra' '/etc/apparmor.d/revamp-hydra.new'\n` +
+      `apparmor_parser -R '/etc/apparmor.d/revamp-hydra-bob' || true\nrm -f '/etc/apparmor.d/revamp-hydra-bob' '/etc/apparmor.d/revamp-hydra-bob.new'\n`,
   );
   assert.throws(() => removeHelper([]), /no profile/);
   assert.throws(() => removeHelper(["revamp-hydra", "hydra"]), /profile name must start with "revamp-": hydra/);
@@ -204,14 +214,29 @@ test("assertPrivateDataDir refuses a dir another user could write or recreate", 
   assert.throws(() => assertPrivateDataDir(data, 123456), new RegExp(`is owned by ${process.getuid!()}$`));
 });
 
-test("assertPrivateDataDir allows a sticky world-writable dir (like /tmp) above a child this user owns", () => {
+test("assertPrivateDataDir refuses a dir under a sticky world-writable one: it gets wiped, and anyone may recreate the path", (t) => {
   const sticky = tmp();
   chmodSync(sticky, 0o1777);
   const data = join(sticky, "revamp");
   mkdirSync(data, { mode: 0o700 });
+  trustedRoot(t, undefined);
+  assert.throws(() => assertPrivateDataDir(data), new RegExp(`^Error: unsafe data path ${data}: ${sticky} is writable by other users$`));
+  // the system's /tmp itself, when that is where the temp dirs are
+  if ((statSync(tmpdir()).mode & 0o1002) === 0o1002) assert.throws(() => assertPrivateDataDir(tmp()), new RegExp(`: ${tmpdir()} is writable by other users$`));
+});
+
+test("REVAMP_TRUSTED_ROOT (a test seam) stops the walk: that dir and the ones above it aren't judged", (t) => {
+  const open = tmp();
+  chmodSync(open, 0o777);
+  const data = join(open, "revamp");
+  mkdirSync(data, { mode: 0o700 });
+  trustedRoot(t, open);
   assert.equal(assertPrivateDataDir(data), realpathSync(data));
-  // a missing child of a sticky dir is anyone's to create
-  assert.throws(() => assertPrivateDataDir(join(sticky, "missing")), /is writable by other users/);
+  chmodSync(data, 0o777);
+  assert.throws(() => assertPrivateDataDir(data), new RegExp(`: ${data} is writable by other users$`)); // below it, still judged
+  chmodSync(data, 0o700);
+  delete process.env.REVAMP_TRUSTED_ROOT;
+  assert.throws(() => assertPrivateDataDir(data), /is writable by other users/);
 });
 
 test("assertPrivateDataDir allows a group-writable dir of the user's private group (umask 002)", { skip: process.getuid!() !== process.getgid!() && "this user's group id is not their user id" }, () => {

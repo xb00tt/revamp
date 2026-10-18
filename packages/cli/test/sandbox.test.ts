@@ -9,6 +9,7 @@ import { applyProfile, canPrompt, chooseProfileName, existingProfileNames, pkexe
 // No test here may look at the machine's /etc/apparmor.d or reach the real pkexec.
 process.env.REVAMP_PROFILE_DIR = mkdtempSync(join(tmpdir(), "revamp-sandbox-profiles-"));
 process.env.REVAMP_PKEXEC = "/nonexistent/pkexec";
+process.env.REVAMP_TRUSTED_ROOT = tmpdir(); // the homes live under the system's /tmp
 
 const tempPaths = (o: Record<string, string> = {}) => revampPaths({ HOME: mkdtempSync(join(tmpdir(), "revamp-sandbox-")), XDG_DATA_HOME: "", XDG_CONFIG_HOME: "", XDG_CACHE_HOME: "", XDG_STATE_HOME: "", ...o });
 const PKEXEC = "/usr/bin/pkexec";

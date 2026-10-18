@@ -18,6 +18,7 @@ const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
 process.env.REVAMP_PROFILE_DIR = mkdtempSync(join(tmpdir(), "revamp-serve-profiles-"));
 process.env.REVAMP_PKEXEC = "/nonexistent/pkexec";
 process.env.REVAMP_SYSCTL_PATH = "/nonexistent/sysctl";
+process.env.REVAMP_TRUSTED_ROOT = tmpdir(); // the homes live under the system's /tmp
 /** A home with an empty sources.json: serve seeds the default source only while the file doesn't exist, and tests stay offline. */
 function freshHome(prefix: string): string {
   const home = mkdtempSync(join(tmpdir(), prefix));

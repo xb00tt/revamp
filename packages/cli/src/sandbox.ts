@@ -77,7 +77,7 @@ const present = (env: SandboxProfileEnv, name: string) => env.fileExists(join(PR
 /**
  * The name `revamp sandbox` installs under. This user's suffixed profile, if one exists, is reused: choosing the plain
  * name beside it would put two profiles on the same path. Otherwise the engine's computed name.
- * Throws on an unsafe app id or username.
+ * Throws on an unsafe app id or data dir.
  */
 export function chooseProfileName(paths: Paths, appId: string, env: SandboxProfileEnv): string {
   const [computed, suffixed] = sandboxProfileNames(paths, appId, env);
