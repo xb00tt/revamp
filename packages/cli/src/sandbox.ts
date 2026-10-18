@@ -101,8 +101,8 @@ export function planProfile(paths: Paths, appId: string, env: SandboxProfileEnv 
 }
 
 /** Runs the plan through pkexec. undefined when it worked, else what to tell the user. */
-export function applyProfile(plan: ProfilePlan, pkexec: string = pkexecPath(), spawn?: Spawn): string | undefined {
-  const r = runAsRoot(plan.script, spawn, pkexec);
+export function applyProfile(plan: ProfilePlan, pkexec: string = pkexecPath()): string | undefined {
+  const r = runAsRoot(plan.script, undefined, pkexec);
   if (r.ok) return undefined;
   return cancelled(r) ? "The administrator prompt was cancelled; nothing changed." : pkexecFailed(r, plan.sudo());
 }

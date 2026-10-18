@@ -67,6 +67,10 @@ export function sandboxNote(status: SandboxStatus): string | null {
   return `This system restricts user namespaces, so Revamped apps can't start their sandbox. Revamp can install an AppArmor profile for ${missing.join(", ")} (one administrator prompt each).`;
 }
 
+/** What root does for this app, shown before the system's password prompt. */
+export const sandboxDetail = (app: { appId: string; profile: string }): string =>
+  `Writes /etc/apparmor.d/${app.profile} and loads it with apparmor_parser; the system asks for your password.`;
+
 /** Bundle-supplied text for the screen: no bidi overrides, zero-width or control characters (newline and tab stay). */
 export const plain = (text = "") => text.replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2069\uFEFF]/g, "");
 

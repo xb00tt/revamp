@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AppCheck } from "@revamp-app/engine";
-import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, forVersion, answerNewPatches, initialToggles, jobEvent, newPatchesNote, optionFlags, type Listing, type PatchRow, patchName, plain, progressLabel, reclaimable, releaseNote, sandboxNote, selectionFlags, startJob } from "../src/model.ts";
+import { type AppRow, type AppsList, badgeFor, checkFor, finishJob, formatBytes, forVersion, answerNewPatches, initialToggles, jobEvent, newPatchesNote, optionFlags, type Listing, type PatchRow, patchName, plain, progressLabel, reclaimable, releaseNote, sandboxDetail, sandboxNote, selectionFlags, startJob } from "../src/model.ts";
 
 const app = (appId: string, current: string | null): AppRow => ({ appId, name: appId, current, versions: [] });
 const check = (appId: string, status: AppCheck["status"], latest = "1.1.0"): AppCheck => ({ appId, appName: appId, current: "1.0.0", latest, status });
@@ -191,4 +191,8 @@ test("the sandbox note appears only when the system restricts user namespaces an
     "This system restricts user namespaces, so Revamped apps can't start their sandbox. Revamp can install an AppArmor profile for hydra (one administrator prompt each).",
   );
   assert.match(sandboxNote({ restricted: true, canPrompt: false, apps: apps(false, false) })!, /profile for hydra, heroic \(one/);
+});
+
+test("the sandbox detail spells out the file root writes before the system asks for a password", () => {
+  assert.equal(sandboxDetail({ appId: "hydra", profile: "revamp-hydra" }), "Writes /etc/apparmor.d/revamp-hydra and loads it with apparmor_parser; the system asks for your password.");
 });

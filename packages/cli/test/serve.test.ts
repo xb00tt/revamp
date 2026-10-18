@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,7 +45,7 @@ async function setup() {
   const notes: unknown[] = [];
   let next = 1;
   const call = async (method: string, params?: unknown) => (await handle(JSON.stringify({ jsonrpc: "2.0", id: next++, method, params }), (m, p) => notes.push({ m, p }))) as { id: number; result?: any; error?: { code: number; message: string } };
-  return { root, sha256, bundle, paths, handle, call, notes, close: () => server.close() };
+  return { root, sha256, bundle, paths, handle, call, notes, logs, close: () => server.close() };
 }
 
 test("apps, patches, a patch job with progress, and the installed result", async (t) => {
@@ -178,15 +178,15 @@ async function withEnv(vars: Record<string, string | undefined>, work: () => Pro
   }
 }
 
-/** The demo app installed, an empty profile dir standing in for /etc/apparmor.d, and a fake pkexec that logs and exits with `exit`. */
-async function sandboxSetup(t: { after(fn: () => void): void }, exit = 0) {
+/** The demo app installed, an empty profile dir standing in for /etc/apparmor.d, and a fake pkexec that logs its arguments and input. */
+async function sandboxSetup(t: { after(fn: () => void): void }) {
   const s = await setup();
   t.after(s.close);
   assert.equal((await s.call("job.patch", { appId: "demo", enable: ["Say goodbye"] })).result.result.installed, true);
   const profiles = mkdtempSync(join(tmpdir(), "revamp-serve-profiles-"));
   const log = join(s.root, "pkexec.log");
   const pkexec = join(s.root, "pkexec");
-  writeFileSync(pkexec, `#!/bin/sh\necho "$@" >> '${log}'\ncat >> '${log}'\nexit ${exit}\n`);
+  writeFileSync(pkexec, `#!/bin/sh\necho "$@" >> '${log}'\ncat >> '${log}'\nexit 0\n`);
   chmodSync(pkexec, 0o755);
   return { ...s, profiles, log, pkexec, helper: join(s.paths.state, "sandbox/revamp-demo.sh") };
 }
@@ -208,6 +208,19 @@ test("sandbox.status lists each installed app with its profile name and whether 
     assert.deepEqual(status.apps, [{ appId: "demo", profile: "revamp-demo", installed: false }]);
     writeFileSync(join(s.profiles, "revamp-demo"), `"${s.paths.data}/apps/demo/*/demo" {}\n`); // a profile with this user's path in it
     assert.equal((await s.call("sandbox.status")).result.apps[0].installed, true);
+  });
+});
+
+test("sandbox.status skips an app directory it can't name instead of failing for every app", async (t) => {
+  const s = await sandboxSetup(t);
+  const odd = join(s.paths.data, "apps/my app");
+  mkdirSync(join(odd, "1.0.0"), { recursive: true });
+  writeFileSync(join(odd, "1.0.0/revamp.json"), '{"installedAt":"2026-01-01T00:00:00.000Z"}');
+  symlinkSync("1.0.0", join(odd, "current"));
+  await withEnv({ REVAMP_PROFILE_DIR: s.profiles, REVAMP_PKEXEC: "/nonexistent/pkexec" }, async () => {
+    const status = (await s.call("sandbox.status")).result;
+    assert.deepEqual(status.apps, [{ appId: "demo", profile: "revamp-demo", installed: false }]);
+    assert.match(s.logs.join("\n"), /my app.*unsafe|unsafe.*my app/);
   });
 });
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { JobProgress } from "@revamp-app/engine";
 import { AppDetail } from "./AppDetail.tsx";
 import { JobView, type JobRequest } from "./JobView.tsx";
-import { badgeFor, checkFor, plain, progressLabel, sandboxNote, type AppsList, type SandboxStatus } from "./model.ts";
+import { badgeFor, checkFor, plain, progressLabel, sandboxDetail, sandboxNote, type AppsList, type SandboxStatus } from "./model.ts";
 import type { Rpc } from "./rpc.ts";
 import { Sources } from "./Sources.tsx";
 import { Storage } from "./Storage.tsx";
@@ -54,7 +54,7 @@ export function App({ rpc }: { rpc: Rpc }) {
     });
 
   const note = sandbox && sandboxNote(sandbox);
-  const lacking = sandbox?.apps.filter((a) => !a.installed) ?? [];
+  const banner = sandbox && note ? { note, canPrompt: sandbox.canPrompt, lacking: sandbox.apps.filter((a) => !a.installed) } : null;
   // The administrator dialog pkexec opens is the confirmation, so the button just asks.
   const fixSandbox = (appId: string) =>
     task(`Fixing the sandbox for ${appId}…`, async () => {
@@ -104,13 +104,14 @@ export function App({ rpc }: { rpc: Rpc }) {
         </aside>
         <main className="main">
           {error && <pre className="banner danger">{plain(error)}</pre>}
-          {note && sandbox && (
+          {banner && (
             <div className="banner warning">
-              {plain(note)}
+              {plain(banner.note)}
+              {banner.canPrompt && banner.lacking.map((a) => <p key={a.appId} className="muted">{plain(sandboxDetail(a))}</p>)}
               <div className="row-actions">
-                {lacking.map((a) =>
-                  sandbox.canPrompt ? (
-                    <button key={a.appId} disabled={busy !== null} onClick={() => fixSandbox(a.appId)}>
+                {banner.lacking.map((a) =>
+                  banner.canPrompt ? (
+                    <button key={a.appId} disabled={busy !== null} title={plain(sandboxDetail(a))} onClick={() => fixSandbox(a.appId)}>
                       Fix the sandbox for {plain(a.appId)}
                     </button>
                   ) : (

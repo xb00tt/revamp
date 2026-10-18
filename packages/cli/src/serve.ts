@@ -176,9 +176,15 @@ export function createHandler(o: ServeOptions): (line: string, notify: Notify) =
     },
     "sandbox.status": () => {
       const env = realSandboxEnv();
-      const apps = listInstalls(o.paths)
-        .filter((a) => a.current)
-        .map(({ appId }) => ({ appId, profile: chooseProfileName(o.paths, appId, env), installed: sandboxProfilePresent(o.paths, appId, env) }));
+      const apps = [];
+      for (const { appId, current } of listInstalls(o.paths)) {
+        if (!current) continue;
+        try {
+          apps.push({ appId, profile: chooseProfileName(o.paths, appId, env), installed: sandboxProfilePresent(o.paths, appId, env) });
+        } catch (e) {
+          o.log(`sandbox.status: skipping ${appId}: ${e instanceof Error ? e.message : String(e)}`); // an odd directory name must not hide the banner for the other apps
+        }
+      }
       return { restricted: userNamespacesRestricted(), canPrompt: canPrompt(process.env, pkexecPath(process.env)), apps };
     },
     // The administrator dialog is the confirmation, so nothing asks first. ponytail: pkexec runs synchronously, so serve answers nothing while the dialog is open.
