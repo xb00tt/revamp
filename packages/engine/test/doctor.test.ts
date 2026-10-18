@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { doctorExitCode, onPath, realDoctorEnv, runDoctor, WINDOW_GLIBC, type DoctorEnv } from "../src/doctor.ts";
+import { doctorExitCode, onPath, realDoctorEnv, runDoctor, sandboxProfilePresent, WINDOW_GLIBC, type DoctorEnv } from "../src/doctor.ts";
 import { environmentWarnings } from "../src/install.ts";
 import { revampPaths, type Paths } from "../src/paths.ts";
 import { SYSCTL_PATH } from "../src/sandbox-profile.ts";
@@ -90,7 +90,10 @@ test("an old glibc or another platform is broken", () => {
   // compared as numbers: 2.4 is older than 2.39, 2.100 is newer
   assert.equal(by(runDoctor(p, env(p, { glibc: "2.4" })), "glibc")?.severity, "broken");
   assert.equal(by(runDoctor(p, env(p, { glibc: "2.100" })), "glibc")?.severity, "ok");
-  assert.equal(by(runDoctor(p, env(p, { glibc: undefined })), "glibc")?.severity, "broken");
+  // process.report unavailable: can't judge, so not a failure
+  const unknown = by(runDoctor(p, env(p, { glibc: undefined })), "glibc")!;
+  assert.equal(unknown.severity, "ok");
+  assert.equal(unknown.detail, "unknown (process.report unavailable)");
   const mac = runDoctor(p, env(p, { platform: "darwin" }));
   assert.equal(by(mac, "platform")?.severity, "broken");
   assert.equal(by(mac, "platform")?.fix, "Revamp 1.x ships for Linux x86_64");
@@ -136,6 +139,28 @@ test("the sandbox check finds the profile under the second user's suffixed name"
   // no base profile, but a suffixed one from earlier also counts
   const earlier = runDoctor(p, env(p, { sysctl: "1", files: [`${base}-u`] }));
   assert.equal(by(earlier, "sandbox-hydra")?.severity, "ok");
+});
+
+test("sandboxProfilePresent: one rule for the doctor and the install note", () => {
+  const p = setup();
+  const base = "/etc/apparmor.d/revamp-hydra";
+  const mine = `profile revamp-hydra "${p.data}/apps/hydra/*/hydralauncher" {}`;
+  const other = `profile revamp-hydra "/home/b/.local/share/revamp/apps/hydra/*/hydralauncher" {}`;
+  const present = (e: Parameters<typeof env>[1]) => sandboxProfilePresent(p, "hydra", env(p, e));
+  assert.equal(present({}), false);
+  assert.equal(present({ files: [base], texts: { [base]: mine } }), true);
+  assert.equal(present({ files: [base], texts: { [base]: other } }), false);
+  assert.equal(present({ files: [base, `${base}-u`], texts: { [base]: other } }), true);
+  // the doctor agrees with it
+  assert.equal(by(runDoctor(p, env(p, { sysctl: "1", files: [base], texts: { [base]: other } })), "sandbox-hydra")?.severity, "fixable");
+});
+
+test("an unsafe app name is a fixable check, not a throw", () => {
+  const p = setup({ apps: ["my app"] });
+  const check = by(runDoctor(p, env(p, { sysctl: "1" })), "sandbox-my app")!;
+  assert.equal(check.severity, "fixable");
+  assert.match(check.detail, /^unsafe name: unsafe app id "my app"/);
+  assert.throws(() => sandboxProfilePresent(p, "my app", env(p)), /unsafe app id/);
 });
 
 test("the timer", () => {

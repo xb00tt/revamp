@@ -88,6 +88,17 @@ function glibcAtLeast(have: string, want: string): boolean {
   return h1 > w1 || (h1 === w1 && h2 >= w2);
 }
 
+/** The profile names that count as this user's for an app: the plain one unless another user's profile holds it, and the suffixed one an earlier run may have used. */
+function sandboxProfileNames(paths: Paths, appId: string, env: Pick<DoctorEnv, "readFile" | "username">): string[] {
+  const base = `revamp-${appId}`;
+  return [profileName(appId, env.readFile(join(PROFILE_DIR, base)), paths.data, env.username), `${base}-${env.username}`];
+}
+
+/** Whether this user's sandbox profile for the app is in /etc/apparmor.d (not whether it is loaded: that needs root). Throws on an unsafe app id or username. */
+export function sandboxProfilePresent(paths: Paths, appId: string, env: Pick<DoctorEnv, "readFile" | "fileExists" | "username">): boolean {
+  return sandboxProfileNames(paths, appId, env).some((n) => env.fileExists(join(PROFILE_DIR, n)));
+}
+
 /** The checks, in report order. Reads only local state; never the network. */
 export function runDoctor(paths: Paths, env: DoctorEnv): DoctorCheck[] {
   const checks: DoctorCheck[] = [];
@@ -100,8 +111,8 @@ export function runDoctor(paths: Paths, env: DoctorEnv): DoctorCheck[] {
     add(
       "glibc",
       "glibc (window)",
-      env.glibc !== undefined && glibcAtLeast(env.glibc, WINDOW_GLIBC),
-      env.glibc ?? "unknown",
+      env.glibc === undefined || glibcAtLeast(env.glibc, WINDOW_GLIBC),
+      env.glibc ?? "unknown (process.report unavailable)",
       `The window needs glibc ${WINDOW_GLIBC} or newer (Ubuntu 24.04, Linux Mint 22 or newer)`,
       "broken",
     );
@@ -118,13 +129,19 @@ export function runDoctor(paths: Paths, env: DoctorEnv): DoctorCheck[] {
   });
   if (restricted) {
     for (const { appId } of listInstalls(paths)) {
-      const base = `revamp-${appId}`;
-      // Ours is the plain name unless another user's profile holds it; an earlier run may have used the suffixed one.
-      const names = [profileName(appId, env.readFile(join(PROFILE_DIR, base)), paths.data, env.username), `${base}-${env.username}`];
+      const id = `sandbox-${appId}`;
+      const label = `Sandbox profile for ${appId}`;
+      let names: string[];
+      try {
+        names = sandboxProfileNames(paths, appId, env);
+      } catch (e) {
+        checks.push({ id, label, severity: "fixable", detail: `unsafe name: ${(e as Error).message}` });
+        continue;
+      }
       const found = names.find((n) => env.fileExists(join(PROFILE_DIR, n)));
       add(
-        `sandbox-${appId}`,
-        `Sandbox profile for ${appId}`,
+        id,
+        label,
         found !== undefined,
         found !== undefined
           ? `${join(PROFILE_DIR, found)} present (whether it's loaded needs root to read; revamp sandbox ${appId} reloads it)`

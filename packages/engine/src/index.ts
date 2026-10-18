@@ -64,6 +64,7 @@ export {
   onPath,
   realDoctorEnv,
   runDoctor,
+  sandboxProfilePresent,
   WINDOW_GLIBC,
   type DoctorCheck,
   type DoctorEnv,
