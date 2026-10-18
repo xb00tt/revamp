@@ -59,6 +59,16 @@ export {
   SYSCTL_PATH,
   userNamespacesRestricted,
 } from "./sandbox-profile.ts";
+export {
+  doctorExitCode,
+  onPath,
+  realDoctorEnv,
+  runDoctor,
+  WINDOW_GLIBC,
+  type DoctorCheck,
+  type DoctorEnv,
+  type DoctorSeverity,
+} from "./doctor.ts";
 export { removeStorageItem, storageUsage, type StorageItem } from "./storage.ts";
 export { revampPaths, type Paths } from "./paths.ts";
 export { ENGINE_VERSION } from "./version.ts";

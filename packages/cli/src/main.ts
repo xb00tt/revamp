@@ -13,6 +13,7 @@ import {
   listInstalls,
   listPatches,
   loadSources,
+  onPath,
   patchApp,
   prepareSource,
   removeSource,
@@ -27,7 +28,7 @@ import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
 import { serve } from "./serve.ts";
-import { installCli, installWindow, onPath } from "./install.ts";
+import { installCli, installWindow } from "./install.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
 
 // Bundles supply names, notes and messages, and the trust prompt follows them: print nothing that moves the cursor.

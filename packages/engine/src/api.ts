@@ -10,6 +10,7 @@ import { environmentWarnings, ICON_FILE, installStaged, listInstalls, lockApp, n
 import { ASAR_PATH, patchesForApp, type AppInfo, type BundleDescription, type PatchInfo, type SandboxPatchOutput } from "./job.ts";
 import { assertSafeName, assertSafeRelativePath, releasePath, revampPaths, type Paths } from "./paths.ts";
 import { runSandboxed } from "./sandbox.ts";
+import { profileFileExists } from "./sandbox-profile.ts";
 import { compareVersions, ENGINE_VERSION } from "./version.ts";
 
 export interface PatchAppOptions {
@@ -260,7 +261,7 @@ export async function patchApp(o: PatchAppOptions): Promise<PatchAppResult> {
         },
       });
       saveSelection(paths, app.id, selection);
-      return { ...base, installed: true, installDir, exitCode, warnings: [...warnings, ...environmentWarnings(app.name)] };
+      return { ...base, installed: true, installDir, exitCode, warnings: [...warnings, ...environmentWarnings({ id: app.id, name: app.name }, { profileExists: (n) => profileFileExists(n) })] };
     } finally {
       rmSync(staging, { recursive: true, force: true }); // no-op after a successful install renamed it
     }
