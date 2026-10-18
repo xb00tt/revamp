@@ -47,6 +47,18 @@ export {
   type SourceFetchOptions,
 } from "./bundle-sources.ts";
 export { listInstalls, rollback, uninstall, type InstalledApp } from "./install.ts";
+export {
+  installedExecutable,
+  installHelper,
+  profileFileExists,
+  profileName,
+  profilePattern,
+  profileText,
+  PROFILE_DIR,
+  removeHelper,
+  SYSCTL_PATH,
+  userNamespacesRestricted,
+} from "./sandbox-profile.ts";
 export { removeStorageItem, storageUsage, type StorageItem } from "./storage.ts";
 export { revampPaths, type Paths } from "./paths.ts";
 export { ENGINE_VERSION } from "./version.ts";
