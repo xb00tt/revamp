@@ -70,7 +70,9 @@ let input: { rl: Interface; lines: AsyncIterator<string>; closed: boolean } | un
 
 async function confirm(question: string): Promise<boolean> {
   if (!input) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    // terminal: false leaves the tty in the kernel's canonical mode (echo, backspace, Ctrl-C, Ctrl-D) for the whole run:
+    // readline's own terminal mode is raw, and would stay raw through the download or the pkexec prompt after the answer.
+    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: false });
     input = { rl, lines: rl[Symbol.asyncIterator](), closed: false };
     rl.once("close", () => input && (input.closed = true));
   }
