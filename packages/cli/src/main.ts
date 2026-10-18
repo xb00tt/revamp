@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { isSea } from "node:sea";
@@ -26,6 +27,7 @@ import { bundleFor, seedDefaultSource } from "./bundle-for.ts";
 import { notifyCheck } from "./notify.ts";
 import { newPatchesPrompt } from "./new-patches.ts";
 import { serve } from "./serve.ts";
+import { installCli, installWindow, onPath } from "./install.ts";
 import { disableTimer, enableTimer } from "./timer.ts";
 
 // Bundles supply names, notes and messages, and the trust prompt follows them: print nothing that moves the cursor.
@@ -45,6 +47,7 @@ const USAGE = `Usage:
   revamp check [--notify]
   revamp update [<app>] [--force] [--yes]
   revamp timer enable|disable
+  revamp self-install   install this binary (and the window beside it) for your user
   revamp serve        JSON-RPC 2.0 on stdin/stdout, for the GUI
 
 Without --bundle, an app's bundle comes from the first source that has it.`;
@@ -200,6 +203,20 @@ async function main(argv: string[]): Promise<number> {
     case "serve":
       await serve({ paths, log: printError });
       return 0;
+    case "self-install": {
+      if (!isSea()) throw new Error("self-install runs from the release's revamp binary; from the repo use npm run install:cli or npm run gui:install");
+      const home = process.env.HOME || homedir();
+      const dir = dirname(process.execPath);
+      const { bin, link } = installCli(paths, process.execPath, home);
+      print(`Installed ${bin}; ${link} points to it.`);
+      const gui = join(dir, "revamp-gui");
+      const icon = join(dir, "revamp.png");
+      if (existsSync(gui) && existsSync(icon)) print(`Installed ${installWindow(paths, { gui, icon })}; "Revamp" is in your applications menu.`);
+      else print("No revamp-gui beside this binary, so only the command line was (re)installed; an installed window stays as it is.");
+      if (!onPath((process.env.PATH ?? "").split(":"), dirname(link))) print("Add ~/.local/bin to your PATH to run revamp from anywhere.");
+      print("For a daily update check, run: revamp timer enable");
+      return 0;
+    }
     case "timer": {
       const units = join(dirname(paths.config), "systemd", "user");
       if (appId === "enable") {

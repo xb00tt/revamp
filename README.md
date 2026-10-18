@@ -6,6 +6,36 @@ are never distributed: everyone patches locally. License: GPL-3.0-only.
 
 Design: [docs/superpowers/specs/2026-10-14-revamp-v1-design.md](docs/superpowers/specs/2026-10-14-revamp-v1-design.md).
 
+## Install
+
+Requirements: Linux x86_64, glibc 2.39 or newer (Ubuntu 24.04, Linux Mint 22, or newer), and WebKitGTK 4.1 for the window
+(`sudo apt install libwebkit2gtk-4.1-0`).
+
+1. Download `revamp-1.0.0-linux-x86_64.tar.gz` and `SHA256SUMS` from the [Releases](https://github.com/xb00tt/revamp/releases) page.
+2. Check the download:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+3. Unpack it:
+
+```bash
+tar -xzf revamp-1.0.0-linux-x86_64.tar.gz
+```
+
+4. Install it for your user (no root):
+
+```bash
+./revamp-1.0.0-linux-x86_64/revamp self-install
+```
+
+5. Patch an app:
+
+```bash
+revamp patch hydra
+```
+
 ## Develop
 
 Revamp needs Node 26 (the repo refuses older versions):

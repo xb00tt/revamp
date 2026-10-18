@@ -553,6 +553,7 @@ Stable versions must apply 100%. Experimental versions report only.
 | `revamp patches <app> [--version v]`: patches, defaults, required, options, compatibility | M2 |
 | `revamp sources add/list/remove`, `revamp check [--notify]`, `revamp update [app] [--force] [--yes]`, `revamp timer enable/disable` | M4 |
 | `revamp serve`: JSON-RPC 2.0 over stdio (§9) | M5 |
+| `revamp self-install`: installs the release binary and the window beside it | 1.0 |
 
 Flags passed to `patch` are saved into `~/.config/revamp/apps/<app>.json`, so `update` reproduces the last install.
 

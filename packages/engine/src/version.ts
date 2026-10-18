@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = "0.3.0";
+export const ENGINE_VERSION = "1.0.0";
 
 /** Compares dotted numeric versions: "4.1.10" > "4.1.9", "1.0" == "1.0.0". */
 export function compareVersions(a: string, b: string): -1 | 0 | 1 {
